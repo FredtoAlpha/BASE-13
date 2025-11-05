@@ -53,12 +53,26 @@ function doGet(e) {
     // Charger dynamiquement le contenu (connexion directe aux fichiers du projet)
     const fileContent = loadBundleFromProject(fileName);
     if (!fileContent) {
-      console.error('[DIRECT-LOAD] ❌ Fichier introuvable: ' + fileName);
-      return HtmlService.createHtmlOutput(
-        '[ERREUR] Erreur 404: Fichier non trouve<br>' +
-        'Fichier: ' + fileName + '<br>' +
-        'Verification: Le fichier existe-t-il dans le projet Apps Script ?'
-      );
+      console.warn('[AUTO-LOAD] Fichier non trouve dans ScriptProperties: ' + fileName);
+      console.log('[AUTO-LOAD] Tentative de chargement automatique depuis le projet...');
+
+      // Essayer de charger le fichier automatiquement
+      fileContent = loadBundleFromProject(fileName);
+
+      if (fileContent) {
+        // Sauvegarder dans ScriptProperties pour les prochaines requêtes
+        scriptProperties.setProperty('V4_' + fileName, fileContent);
+        console.log('[AUTO-LOAD] ✅ ' + fileName + ' charge automatiquement (' + fileContent.length + ' bytes)');
+      } else {
+        // Si le chargement échoue, retourner une erreur
+        console.error('[AUTO-LOAD] ❌ Impossible de charger ' + fileName);
+        return HtmlService.createHtmlOutput(
+          '[ERREUR] Erreur 404: Fichier non trouve<br>' +
+          'Fichier: ' + fileName + '<br>' +
+          'Le fichier n\'existe ni dans ScriptProperties ni dans le projet.<br>' +
+          'Solution: Verifier que le fichier existe dans le projet Apps Script.'
+        );
+      }
     }
 
     // Retourner avec le bon MIME type (JavaScript brut, pas HTML)
@@ -126,21 +140,36 @@ function uploadV4Bundles() {
     'InterfaceV2_GroupsModuleV4_Script.js'
   ];
 
+  let successCount = 0;
+  let failCount = 0;
+
   files.forEach(fileName => {
     try {
-      const content = loadBundleFromProject(fileName);
-      if (content) {
+      // ✨ NOUVELLE LOGIQUE: Essayer loadBundleFromProject() d'abord, puis Drive
+      let content = loadBundleFromProject(fileName);
+
+      // Si loadBundleFromProject() ne trouve pas le fichier, essayer Drive
+      if (!content) {
+        console.log('[UPLOAD] Tentative via Drive pour: ' + fileName);
+        content = getFileContentFromDrive(fileName);
+      }
+
+      if (content && content.length > 100) {
         scriptProperties.setProperty('V4_' + fileName, content);
-        console.log('[OK] ' + fileName + ' synchronise (' + content.length + ' bytes)');
+        console.log('[OK] ✅ ' + fileName + ' charge (' + content.length + ' bytes)');
+        successCount++;
       } else {
-        console.warn('[WARNING] ' + fileName + ' introuvable - aucune donnee enregistree');
+        console.warn('[WARNING] ⚠️ ' + fileName + ' introuvable dans le projet et Drive');
+        failCount++;
       }
     } catch (error) {
-      console.error('[ERREUR] Erreur chargement ' + fileName + ':', error);
+      console.error('[ERREUR] ❌ Erreur chargement ' + fileName + ':', error);
+      failCount++;
     }
   });
 
-  console.log('[OK] Synchronisation termine - la connexion directe reste prioritaire');
+  console.log('[PACKAGE] 🎉 Termine: ' + successCount + ' fichiers charges, ' + failCount + ' echecs');
+  return { success: successCount, failed: failCount, total: files.length };
 }
 
 /**
