@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intégration Module V4 - Bundles</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; border-bottom: 3px solid #4CAF50; padding-bottom: 10px; }
+        h2 { color: #555; margin-top: 30px; }
+        .status {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .status.ok { background: #d4edda; border-left: 4px solid #28a745; color: #155724; }
+        .status.error { background: #f8d7da; border-left: 4px solid #dc3545; color: #721c24; }
+        .status.pending { background: #fff3cd; border-left: 4px solid #ffc107; color: #856404; }
+        .code-block {
+            background: #f4f4f4;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .instruction {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        button:hover { background: #45a049; }
+        button.secondary {
+            background: #2196F3;
+        }
+        button.secondary:hover {
+            background: #0b7dda;
+        }
+        .log {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .log-entry {
+            margin: 5px 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background: #f2f2f2;
+            font-weight: bold;
+        }
+        .success { color: #28a745; font-weight: bold; }
+        .warning { color: #ff9800; font-weight: bold; }
+        .error-text { color: #dc3545; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🚀 Intégration Module Groupes V4 - Bundles Web App</h1>
+
+    <div class="instruction">
+        <strong>📌 OBJECTIF</strong> : Charger les bundles V4 via un endpoint Web App
+        (évite les erreurs 404 → SyntaxError)
+    </div>
+
+    <!-- ÉTAPE 1: Configuration -->
+    <h2>📋 ÉTAPE 1 : Configuration du Web App Endpoint</h2>
+
+    <div class="status pending">
+        ⏳ <strong>Statut</strong> : Endpoint non configuré
+    </div>
+
+    <div class="instruction">
+        <h3>À faire dans Apps Script:</h3>
+        <ol>
+            <li>Ouvrir le projet Apps Script</li>
+            <li>Copier le contenu de <code>serve_v4_bundles.gs</code></li>
+            <li>Coller dans un nouveau fichier <code>.gs</code></li>
+            <li>Exécuter <code>uploadV4Bundles()</code> (dépôt des fichiers JS)</li>
+            <li>Exécuter <code>getWebAppUrl()</code> (obtenir l'URL)</li>
+            <li>Déployer en tant que Web App:
+                <ul>
+                    <li>Exécuter en tant que: <strong>Votre compte</strong></li>
+                    <li>Accès: <strong>Tous (même les utilisateurs anonymes)</strong></li>
+                </ul>
+            </li>
+        </ol>
+    </div>
+
+    <h3>Votre URL Web App:</h3>
+    <div class="code-block" id="webAppUrl">
+        ❌ À obtenir depuis Apps Script (exécuter getWebAppUrl())
+    </div>
+
+    <p>
+        <input type="text" id="urlInput" placeholder="Copier l'URL du Web App ici" style="width: 100%; padding: 10px; font-family: monospace;">
+    </p>
+
+    <!-- ÉTAPE 2: Tests de chargement -->
+    <h2>🧪 ÉTAPE 2 : Tests de Chargement</h2>
+
+    <p>
+        <button class="secondary" onclick="testEndpoint()">Test 1: Vérifier l'endpoint</button>
+        <button class="secondary" onclick="testBundles()">Test 2: Charger les bundles</button>
+        <button class="secondary" onclick="testInstantiation()">Test 3: Instancier V4</button>
+    </p>
+
+    <div class="log" id="testLog">
+        <div class="log-entry">🔍 Logs du test (les résultats apparaîtront ici)</div>
+    </div>
+
+    <!-- ÉTAPE 3: Statuts des bundles -->
+    <h2>📦 ÉTAPE 3 : Statut des Bundles</h2>
+
+    <table>
+        <tr>
+            <th>Fichier</th>
+            <th>Taille</th>
+            <th>Statut</th>
+            <th>Action</th>
+        </tr>
+        <tr>
+            <td>InterfaceV4_Triptyque_Logic.js</td>
+            <td id="size-triptyque">?</td>
+            <td id="status-triptyque" class="warning">⏳ Non testé</td>
+            <td><button class="secondary" onclick="loadBundle('InterfaceV4_Triptyque_Logic.js')">Charger</button></td>
+        </tr>
+        <tr>
+            <td>GroupsAlgorithmV4_Distribution.js</td>
+            <td id="size-algo">?</td>
+            <td id="status-algo" class="warning">⏳ Non testé</td>
+            <td><button class="secondary" onclick="loadBundle('GroupsAlgorithmV4_Distribution.js')">Charger</button></td>
+        </tr>
+        <tr>
+            <td>InterfaceV2_GroupsModuleV4_Script.js</td>
+            <td id="size-loader">?</td>
+            <td id="status-loader" class="warning">⏳ Non testé</td>
+            <td><button class="secondary" onclick="loadBundle('InterfaceV2_GroupsModuleV4_Script.js')">Charger</button></td>
+        </tr>
+    </table>
+
+    <!-- ÉTAPE 4: Intégration -->
+    <h2>💾 ÉTAPE 4 : Intégration dans le HTML</h2>
+
+    <p>Ajouter dans votre HTML principal (après que les données soient injectées):</p>
+
+    <div class="code-block">
+// Charger les bundles V4 via l'endpoint Web App
+const V4_WEB_APP_URL = "https://script.google.com/macros/d/YOUR_DEPLOYMENT_ID/usercache";
+
+// 1. Charger Triptyque Logic
+fetch(V4_WEB_APP_URL + "?file=InterfaceV4_Triptyque_Logic.js")
+  .then(r => r.text())
+  .then(code => {
+    eval(code);  // ou: new Function(code)()
+    console.log("✅ Triptyque_Logic chargé");
+  })
+  .catch(err => console.error("❌ Erreur Triptyque:", err));
+
+// 2. Charger Algorithme
+fetch(V4_WEB_APP_URL + "?file=GroupsAlgorithmV4_Distribution.js")
+  .then(r => r.text())
+  .then(code => {
+    eval(code);
+    console.log("✅ Algorithm V4 chargé");
+  })
+  .catch(err => console.error("❌ Erreur Algo:", err));
+
+// 3. Charger Loader
+fetch(V4_WEB_APP_URL + "?file=InterfaceV2_GroupsModuleV4_Script.js")
+  .then(r => r.text())
+  .then(code => {
+    eval(code);
+    console.log("✅ Loader V4 chargé");
+    // Maintenant window.ModuleGroupsV4 est disponible ✅
+  })
+  .catch(err => console.error("❌ Erreur Loader:", err));
+    </div>
+
+    <!-- ÉTAPE 5: Checklist finale -->
+    <h2>✅ Checklist Finale</h2>
+
+    <div style="margin: 20px 0;">
+        <label style="display: block; margin: 10px 0;">
+            <input type="checkbox" id="check1"> <strong>Endpoint Web App créé et déployé</strong>
+        </label>
+        <label style="display: block; margin: 10px 0;">
+            <input type="checkbox" id="check2"> <strong>Bundles chargés dans ScriptProperties (uploadV4Bundles())</strong>
+        </label>
+        <label style="display: block; margin: 10px 0;">
+            <input type="checkbox" id="check3"> <strong>Test 1 réussi: Endpoint accessible</strong>
+        </label>
+        <label style="display: block; margin: 10px 0;">
+            <input type="checkbox" id="check4"> <strong>Test 2 réussi: Bundles téléchargés sans 404</strong>
+        </label>
+        <label style="display: block; margin: 10px 0;">
+            <input type="checkbox" id="check5"> <strong>Test 3 réussi: ModuleGroupsV4 instantié sans erreur</strong>
+        </label>
+        <label style="display: block; margin: 10px 0;">
+            <input type="checkbox" id="check6"> <strong>GROUPS_MODULE_V4_DATA injecté (vraies données)</strong>
+        </label>
+        <label style="display: block; margin: 10px 0;">
+            <input type="checkbox" id="check7"> <strong>Triptyque affiche vraies classes (pas DEFAULT_CLASSES)</strong>
+        </label>
+    </div>
+
+    <button onclick="saveChecklist()" style="background: #4CAF50; width: 100%;">💾 Sauvegarder la checklist</button>
+
+</div>
+
+<script>
+// ============================================================================
+// SCRIPTS DE TEST
+// ============================================================================
+
+function log(message) {
+    const logDiv = document.getElementById('testLog');
+    const entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.textContent = message;
+    logDiv.appendChild(entry);
+    logDiv.scrollTop = logDiv.scrollHeight;
+}
+
+function testEndpoint() {
+    const url = document.getElementById('urlInput').value;
+    if (!url) {
+        alert('❌ Entrez l\'URL du Web App endpoint');
+        return;
+    }
+
+    log('🔍 Test 1: Vérification de l\'endpoint...');
+
+    fetch(url + '?file=InterfaceV4_Triptyque_Logic.js')
+        .then(response => {
+            log(`📊 Status HTTP: ${response.status}`);
+            if (response.status === 200) {
+                log('✅ Endpoint accessible');
+                document.getElementById('status-triptyque').innerHTML = '<span class="success">✅ Endpoint OK</span>';
+            } else {
+                log(`⚠️ Erreur HTTP ${response.status}`);
+            }
+            return response.headers.get('content-type');
+        })
+        .then(contentType => {
+            log(`📝 Content-Type: ${contentType}`);
+            if (contentType && contentType.includes('javascript')) {
+                log('✅ MIME type correct (application/javascript)');
+            } else {
+                log('⚠️ MIME type incorrect (attendu: application/javascript)');
+            }
+        })
+        .catch(error => {
+            log(`❌ Erreur: ${error.message}`);
+            document.getElementById('status-triptyque').innerHTML = '<span class="error-text">❌ Erreur réseau</span>';
+        });
+}
+
+function testBundles() {
+    const url = document.getElementById('urlInput').value;
+    if (!url) {
+        alert('❌ Entrez l\'URL du Web App endpoint');
+        return;
+    }
+
+    log('🧪 Test 2: Chargement des bundles...');
+
+    const files = [
+        'InterfaceV4_Triptyque_Logic.js',
+        'GroupsAlgorithmV4_Distribution.js',
+        'InterfaceV2_GroupsModuleV4_Script.js'
+    ];
+
+    files.forEach(file => {
+        fetch(url + '?file=' + file)
+            .then(r => r.text())
+            .then(content => {
+                const size = (content.length / 1024).toFixed(2);
+                log(`✅ ${file} chargé (${size} KB)`);
+                document.getElementById('size-' + (
+                    file.includes('Triptyque') ? 'triptyque' :
+                    file.includes('Algorithm') ? 'algo' : 'loader'
+                )).textContent = size + ' KB';
+                document.getElementById('status-' + (
+                    file.includes('Triptyque') ? 'triptyque' :
+                    file.includes('Algorithm') ? 'algo' : 'loader'
+                )).innerHTML = '<span class="success">✅ Chargé</span>';
+            })
+            .catch(err => {
+                log(`❌ ${file}: ${err.message}`);
+                document.getElementById('status-' + (
+                    file.includes('Triptyque') ? 'triptyque' :
+                    file.includes('Algorithm') ? 'algo' : 'loader'
+                )).innerHTML = '<span class="error-text">❌ Erreur</span>';
+            });
+    });
+}
+
+function testInstantiation() {
+    log('🔨 Test 3: Instanciation ModuleGroupsV4...');
+
+    if (typeof window.ModuleGroupsV4 !== 'undefined') {
+        try {
+            const module = new window.ModuleGroupsV4();
+            log('✅ ModuleGroupsV4 instancié avec succès');
+
+            if (typeof window.GROUPS_MODULE_V4_DATA !== 'undefined') {
+                log(`✅ GROUPS_MODULE_V4_DATA disponible (${window.GROUPS_MODULE_V4_DATA.classes?.length || 0} classes)`);
+            } else {
+                log('⚠️ GROUPS_MODULE_V4_DATA manquant - données non injectées');
+            }
+        } catch (error) {
+            log(`❌ Erreur instanciation: ${error.message}`);
+        }
+    } else {
+        log('❌ window.ModuleGroupsV4 non trouvé - charger les bundles d\'abord');
+    }
+}
+
+function loadBundle(fileName) {
+    const url = document.getElementById('urlInput').value;
+    if (!url) {
+        alert('❌ Entrez l\'URL du Web App endpoint');
+        return;
+    }
+
+    log(`📥 Chargement ${fileName}...`);
+
+    fetch(url + '?file=' + fileName)
+        .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.text();
+        })
+        .then(content => {
+            eval(content);
+            log(`✅ ${fileName} évalué et chargé`);
+
+            if (fileName.includes('Triptyque')) {
+                if (typeof window.TriptychGroupsModule !== 'undefined') {
+                    log('✅ Classe TriptychGroupsModule disponible');
+                }
+            } else if (fileName.includes('Algorithm')) {
+                if (typeof window.GroupsAlgorithmV4 !== 'undefined') {
+                    log('✅ Classe GroupsAlgorithmV4 disponible');
+                }
+            } else if (fileName.includes('Script')) {
+                if (typeof window.ModuleGroupsV4 !== 'undefined') {
+                    log('✅ Classe ModuleGroupsV4 disponible');
+                }
+            }
+        })
+        .catch(err => log(`❌ Erreur: ${err.message}`));
+}
+
+function saveChecklist() {
+    const checks = [
+        document.getElementById('check1').checked,
+        document.getElementById('check2').checked,
+        document.getElementById('check3').checked,
+        document.getElementById('check4').checked,
+        document.getElementById('check5').checked,
+        document.getElementById('check6').checked,
+        document.getElementById('check7').checked
+    ];
+
+    localStorage.setItem('v4-checklist', JSON.stringify(checks));
+    alert('✅ Checklist sauvegardée');
+}
+
+// Charger la checklist au démarrage
+window.addEventListener('load', () => {
+    const saved = localStorage.getItem('v4-checklist');
+    if (saved) {
+        const checks = JSON.parse(saved);
+        checks.forEach((checked, i) => {
+            document.getElementById('check' + (i+1)).checked = checked;
+        });
+    }
+});
+
+</script>
+
+</body>
+</html>

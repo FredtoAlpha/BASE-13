@@ -1,0 +1,4587 @@
+<script>
+(function(global) {
+  'use strict';
+
+  /*
+  ════════════════════════════════════════════════════════════════════════
+    MODULE COMPLET DE GESTION DES GROUPES
+    - Groupes de Besoins (scores Math/Français)
+    - Groupes LV2 (ESP/ITA/autres langues)
+    - Groupes Options (future extension)
+    - Drag & Drop entre groupes
+    - Export GROUPES / PDF / CSV
+  ════════════════════════════════════════════════════════════════════════
+  */
+
+  // VERSION 4.0 - Octobre 2025 - GROUPS MODULE (NE PAS SUPPRIMER)
+
+  const windowRef =
+    typeof window !== 'undefined'
+      ? window
+      : (typeof globalThis !== 'undefined' ? globalThis : undefined);
+  const documentRef = windowRef?.document;
+
+  if (!windowRef || !documentRef) {
+    console.log('❌ GroupsModuleComplete: environnement navigateur non détecté');
+    return;
+  }
+
+  console.log('🚀 Chargement du Module Complet de Gestion des Groupes...');
+
+  // ═══════════════════════════════════════════════════════════════
+  //  CONSTANTES
+  // ═══════════════════════════════════════════════════════════════
+
+  const GROUP_TYPES = {
+    needs: {
+      id: 'needs',
+      title: 'Groupes de Besoins',
+      description: 'Groupes hétérogènes basés sur les scores Math/Français et critères pédagogiques',
+      icon: '📊',
+      color: 'from-blue-600 to-indigo-600',
+      bgColor: 'bg-blue-50',
+      borderColor: 'border-blue-200'
+    },
+    language: {
+      id: 'language',
+      title: 'Groupes LV2',
+      description: 'Groupes de langues (ESP/ITA) avec priorité à la participation',
+      icon: '🗣️',
+      color: 'from-purple-600 to-pink-600',
+      bgColor: 'bg-purple-50',
+      borderColor: 'border-purple-200'
+    },
+    option: {
+      id: 'option',
+      title: 'Groupes Options',
+      description: 'Groupes basés sur les options choisies (à venir)',
+      icon: '🎨',
+      color: 'from-emerald-600 to-teal-600',
+      bgColor: 'bg-emerald-50',
+      borderColor: 'border-emerald-200',
+      disabled: true
+    }
+  };
+
+  const SUBJECTS = {
+    both: { id: 'both', label: 'Math + Français', icon: '📐📚' },
+    maths: { id: 'maths', label: 'Mathématiques', icon: '📐' },
+    french: { id: 'french', label: 'Français', icon: '📚' }
+  };
+
+  const DISTRIBUTION_TYPES = {
+    heterogeneous: { id: 'heterogeneous', label: 'Hétérogène (tous niveaux mélangés)', recommended: true },
+    homogeneous: { id: 'homogeneous', label: 'Homogène (par niveau)' }
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  //  ÉTAT GLOBAL
+  // ═══════════════════════════════════════════════════════════════
+
+  const state = {
+    // Navigation
+    currentStep: 1,
+    totalSteps: 5,
+
+    // Configuration
+    groupType: null,                    // 'needs' | 'language' | 'option'
+    selectedClasses: [],                // Classes utilisées pour le regroupement actif
+    availableClasses: [],               // Classes visibles dans le board
+    numGroups: 3,                       // Nombre de groupes à créer pour le regroupement actif
+
+    // Gestion des regroupements multi-passes
+    regroupements: [],                  // [{ id, label, classes, groupCount, persistMode, offsetStart, offsetEnd }]
+    activeRegroupementId: null,
+    pendingClasses: [],                 // Sélection temporaire lors de l'étape 2
+    newRegroupementLabel: '',
+    newRegroupementGroupCount: 3,
+    groupsByRegroupement: {},           // id -> { groups, timestamp }
+
+    // Config spécifique Besoins
+    selectedSubject: 'both',            // 'both' | 'maths' | 'french'
+    distributionType: 'heterogeneous',  // 'heterogeneous' | 'homogeneous'
+
+    // Config spécifique LV2
+    selectedLanguage: null,            // Sera défini après détection des langues
+    availableLanguages: [],             // Langues détectées
+    cachedLanguageDetectionKey: null,  // Cache : clé pour éviter recalculs inutiles
+
+    // Données brutes et mapping
+    classesData: {},                    // Dump brut du backend : { "6°1FIN": { eleves:[...] }, ... }
+    classKeyMap: {},                    // Mapping affichage -> backend : { "6°1": "6°1FIN", ... }
+
+    // Données
+    students: [],                       // Tous les élèves des classes sélectionnées
+    studentsById: new Map(),            // Map pour accès rapide
+    generatedGroups: [],                // Groupes générés pour le regroupement actif
+
+    // Persistance & offsets
+    persistMode: 'replace',             // 'replace' | 'continue'
+    tempOffsetStart: 1,
+    continuationData: null,
+    continuationLoading: false,
+    continuationError: null,
+    lastTempRange: null,
+    lastFinalRange: null,
+
+    // UI
+    modal: null,
+    isLoading: false,
+    loadError: null,
+    lastGeneration: null,
+
+    // Drag & Drop
+    sortables: [],
+
+    // Statistiques
+    showStatistics: true,
+
+    // UI Optimisations (étape 5)
+    headerHidden: false,            // Header complètement masqué (titre + stepper)
+    actionsCollapsed: false,        // Barre d'actions compacte
+    statisticsCollapsed: false,     // Panneau stats collapsible
+    focusMode: false,               // Mode focus groupes (masque aussi contrôles)
+    headerHiddenPreference: false,  // Persiste préférence header entre phases
+    keyboardShortcutsEnabled: true  // Raccourcis clavier (H, F, S)
+  };
+
+  // ═══════════════════════════════════════════════════════════════
+  //  UTILITAIRES
+  // ═══════════════════════════════════════════════════════════════
+
+  function qs(selector, scope = documentRef) {
+    return scope?.querySelector(selector);
+  }
+
+  function qsa(selector, scope = documentRef) {
+    return Array.from(scope?.querySelectorAll(selector) || []);
+  }
+
+  function escapeHtml(value) {
+    if (typeof value !== 'string') return '';
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function showToast(message, type = 'info', duration = 3500) {
+    try {
+      const toast = documentRef.createElement('div');
+      toast.className = 'fixed top-6 right-6 z-[9999] px-6 py-4 rounded-2xl shadow-2xl text-white font-semibold flex items-center gap-3 animate-slide-in';
+
+      const colors = {
+        error: 'linear-gradient(135deg, #ef4444, #dc2626)',
+        success: 'linear-gradient(135deg, #22c55e, #16a34a)',
+        warning: 'linear-gradient(135deg, #f59e0b, #d97706)',
+        info: 'linear-gradient(135deg, #6366f1, #7c3aed)'
+      };
+
+      const icons = {
+        error: 'fa-circle-exclamation',
+        success: 'fa-circle-check',
+        warning: 'fa-triangle-exclamation',
+        info: 'fa-circle-info'
+      };
+
+      toast.style.background = colors[type] || colors.info;
+      toast.innerHTML = `<i class="fas ${icons[type] || icons.info}"></i><span>${message}</span>`;
+
+      documentRef.body.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-10px)';
+        setTimeout(() => toast.remove(), 250);
+      }, duration);
+    } catch (error) {
+      console.error('❌ Erreur showToast:', error);
+    }
+  }
+
+  function formatDate(date) {
+    return new Date(date).toLocaleString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
+
+  function normalizeStudentFromSheet(student, fallbackPrefix = 'eleve', fallbackIndex = 0) {
+    if (!student) return null;
+
+    const parseNumber = (value) => {
+      const parsed = parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const id = student.id
+      || student.ID
+      || student.ID_ELEVE
+      || student.IDELEVE
+      || student.identifiant
+      || `${fallbackPrefix}-${fallbackIndex}`;
+
+    const nom = (student.nom || student.NOM || student.lastName || '').toString().trim();
+    const prenom = (student.prenom || student.PRENOM || student.firstName || '').toString().trim();
+    const sexe = (student.sexe || student.SEXE || student.gender || '').toString().trim().toUpperCase();
+    const classe = (student.classe || student.CLASSE || student.class || '').toString().trim();
+    const lv2 = (student.lv2 || student.LV2 || student.langue || '').toString().trim();
+
+    const partValue = parseNumber(student.part ?? student.PART ?? student.participation ?? student.PARTICIPATION);
+    const scoreFValue = parseNumber(student.scoreF ?? student.SCORE_F ?? student.SCOREF ?? student.MOY_FRANCAIS ?? student.MOY_FR ?? student.moyFr);
+    const scoreMValue = parseNumber(student.scoreM ?? student.SCORE_M ?? student.SCOREM ?? student.MOY_MATHS ?? student.MOY_M ?? student.moyMath);
+    const fallbackPart = parseNumber(student.scores?.PART);
+    const fallbackF = parseNumber(student.scores?.F);
+    const fallbackM = parseNumber(student.scores?.M);
+
+    const scores = {
+      ...student.scores,
+      F: Number.isFinite(scoreFValue) ? scoreFValue : (Number.isFinite(fallbackF) ? fallbackF : 0),
+      M: Number.isFinite(scoreMValue) ? scoreMValue : (Number.isFinite(fallbackM) ? fallbackM : 0),
+      PART: Number.isFinite(partValue) ? partValue : (Number.isFinite(fallbackPart) ? fallbackPart : 0)
+    };
+
+    return {
+      ...student,
+      id,
+      nom,
+      prenom,
+      sexe,
+      classe,
+      lv2,
+      part: scores.PART ?? 0,
+      scores,
+      scoreF: scores.F,
+      scoreM: scores.M
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  DÉTECTION DES VRAIES CLASSES PÉDAGOGIQUES
+  // ═══════════════════════════════════════════════════════════════
+
+  // Helper : Transforme un nom de classe en forme CANONIQUE pour comparaison.
+  // Exemples :
+  //   "6°1" → "6#1"
+  //   "6°2FIN" → "6#2"
+  //   "6E2FIN" → "6#2"
+  //   "3E1" → "3#1"
+  // Ça permet de matcher "6°1" (DOM) avec "6E1FIN" (backend) via leur forme canonique commune.
+  function canonicalClass(name) {
+    let s = (name || '')
+      .toString()
+      .trim()
+      .toUpperCase();
+
+    // Unifie "6°2" et "6E2" → "6#2"
+    s = s.replace(/^(\d)[E°]/, '$1#');
+
+    // Retire tout ce qui n'est pas [0-9 A-Z #]
+    s = s.replace(/[^0-9A-Z#]/g, '');
+
+    return s;
+  }
+
+  // Helper : Est-ce que ce nom est une vraie classe pédagogique (ex: "6°1", "5°2", "3E2") ?
+  // Rejette les groupes, CHAV, DYS, soutien, besoins, LV2, etc.
+  function localIsRealClass(name) {
+    if (!name || typeof name !== 'string') return false;
+
+    name = name.trim();
+
+    // Patterns d'exclusion : trucs techniques, groupes de besoin, etc.
+    const badPatterns = [
+      /^GROUPE/i,
+      /^GRP/i,
+      /GROUPE/i,
+      /_LV2/i,
+      /_LV1/i,
+      /_LV3/i,
+      /_CHAV/i,
+      /_DYS/i,
+      /_SOUTIEN/i,
+      /_BESOINS/i,
+    ];
+
+    for (const p of badPatterns) {
+      if (p.test(name)) return false;
+    }
+
+    // Pattern cible : "6°1", "5°2", "3E2", etc.
+    // On accepte chiffre + (° ou E) + chiffre
+    const pedagogicPattern = /^(\d+[°E]\d+)$/i;
+    return pedagogicPattern.test(name);
+  }
+
+  // Détecte les vraies classes directement dans le DOM (colonnes visibles du board)
+  // C'est la "vérité de terrain" pour le chef d'établissement
+  function detectClassesFromDOM() {
+    const zones = documentRef.querySelectorAll('.droppable-zone[data-classe]');
+    const list = [];
+
+    zones.forEach(z => {
+      const cid = (z.getAttribute('data-classe') || '').trim();
+      if (cid && localIsRealClass(cid) && !list.includes(cid)) {
+        list.push(cid);
+      }
+    });
+
+    return list;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  SNAPSHOT DES CLASSES ET ÉLÈVES DEPUIS LE DOM
+  // ═══════════════════════════════════════════════════════════════
+  // Reconstruit un snapshot { "6°1": { eleves:[ {...}, {...} ] }, ... }
+  // en lisant DIRECTEMENT le board visible.
+  // Source unique de vérité : ce que le chef voit à l'écran.
+  function snapshotClassesFromDOMForGroups() {
+    const zones = documentRef.querySelectorAll('.droppable-zone[data-classe]');
+    const snapshot = {};
+
+    zones.forEach(zone => {
+      const classId = (zone.getAttribute('data-classe') || '').trim();
+      if (!classId) return;
+      if (!localIsRealClass(classId)) return;
+
+      // Prépare le bucket pour cette classe
+      snapshot[classId] = { eleves: [] };
+
+      // Récupère toutes les cartes élèves visibles dans cette classe
+      const cards = zone.querySelectorAll('.student-card');
+
+      cards.forEach(card => {
+        // ID élève : on accepte les deux syntaxes
+        const sid =
+          card.getAttribute('data-id') ||
+          card.getAttribute('data-student-id') ||
+          card.dataset.id ||
+          card.dataset.studentId;
+
+        if (!sid) return;
+
+        // On va chercher la fiche complète dans STATE.students
+        const fullData = windowRef.STATE?.students?.[sid];
+
+        if (fullData) {
+          // On clone pour ne pas muter l'original
+          const clone = { ...fullData };
+
+          // On force la classe actuelle visible
+          clone.classe = classId;
+
+          snapshot[classId].eleves.push(clone);
+        } else {
+          // Fallback ultra-minimal si jamais l'élève n'est pas dans STATE.students
+          const nom = (card.querySelector('.sc-nom')?.textContent || '').trim();
+          const prenom = (card.querySelector('.sc-prenom')?.textContent || '').trim();
+          const sexe = card.getAttribute('data-sexe') ||
+                       card.querySelector('.tag-sex')?.textContent?.trim() ||
+                       '';
+
+          snapshot[classId].eleves.push({
+            id: sid,
+            nom,
+            prenom,
+            sexe,
+            classe: classId,
+            scores: {} // pas idéal mais ça évite les crash
+          });
+        }
+      });
+    });
+
+    // Debug utile
+    Object.keys(snapshot).forEach(cid => {
+      console.log(
+        `[GroupsModule] Snapshot DOM → ${cid}: ${snapshot[cid].eleves.length} élèves`
+      );
+    });
+
+    return snapshot;
+  }
+
+  // ========== FONCTION HELPER POUR SIMPLIFIER LES NOMS COMPOSÉS ==========
+  // Utilise la version globale 4.3 définie dans InterfaceV2_CoreScript
+  // Plus de doublon - référence unique
+  
+  function simplifierNomComplet(nom, prenom) {
+    // Utiliser la version globale 4.3 si disponible
+    if (
+      windowRef.simplifierNomComplet &&
+      typeof windowRef.simplifierNomComplet === 'function'
+    ) {
+      return windowRef.simplifierNomComplet(nom, prenom);
+    }
+
+    // Fallback simple si la version globale n'est pas chargée
+    console.warn('⚠️ Version globale simplifierNomComplet non trouvée, utilisation fallback');
+    if (!nom && !prenom) return '';
+    const nomSimple = (nom || '').trim().split(/[\s-]+/)[0];
+    const prenomSimple = (prenom || '').trim().split(/[\s-]+/)[0];
+    return `${nomSimple} ${prenomSimple}`.trim();
+  }
+
+  console.log('✅ GroupsModule - Utilise simplifierNomComplet VERSION 4.3 globale');
+
+  // ═══════════════════════════════════════════════════════════════
+  //  CRÉATION DE LA MODAL
+  // ═══════════════════════════════════════════════════════════════
+
+  function createModal() {
+    closeModal();
+
+    const overlay = documentRef.createElement('div');
+    overlay.className = 'fixed inset-0 z-[9998] flex items-center justify-center bg-slate-900/70 px-4 animate-fade-in';
+    overlay.dataset.groupsModal = 'complete';
+
+    const panel = documentRef.createElement('div');
+    panel.className = 'bg-white rounded-3xl shadow-2xl w-full max-w-[95vw] max-h-[95vh] overflow-hidden flex flex-col relative';
+
+    panel.innerHTML = `
+      ${state.currentStep === 5 && state.headerHidden ? `
+        <!-- Bouton flottant pour réafficher le header - AMÉLIORÉ -->
+        <div class="fixed top-4 right-4 z-[100] animate-slide-in-down">
+          <button type="button"
+            class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white text-sm font-semibold shadow-2xl transition-all duration-200 flex items-center gap-2 hover:shadow-2xl hover:scale-105"
+            data-action="toggle-header-visibility"
+            title="Afficher l'en-tête (Raccourci: H)">
+            <i class="fas fa-angles-down"></i>
+            <span>En-tête</span>
+          </button>
+        </div>
+      ` : ''}
+      <header class="${state.currentStep === 5 && state.headerHidden ? 'hidden' : 'px-8 pt-8 pb-6'} border-b border-slate-200 bg-gradient-to-br from-indigo-50 via-white to-purple-50 transition-all duration-300" data-modal-header>
+        <!-- Mode normal -->
+          <div class="flex items-start justify-between gap-6 mb-6">
+            <div class="flex items-center gap-4">
+              <div class="h-14 w-14 rounded-2xl bg-gradient-to-br ${state.groupType ? GROUP_TYPES[state.groupType].color : 'from-slate-400 to-slate-600'} flex items-center justify-center text-3xl shadow-lg">
+                ${state.groupType ? GROUP_TYPES[state.groupType].icon : '✨'}
+              </div>
+              <div>
+                <h2 class="text-2xl font-bold text-slate-900">Création de Groupes</h2>
+                <p class="text-sm text-slate-600 mt-1">
+                  ${state.groupType ? GROUP_TYPES[state.groupType].title : 'Assistant intelligent de création de groupes'}
+                </p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              ${state.currentStep === 5 ? `
+                <button type="button"
+                  class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 text-sm font-semibold transition-all duration-200 hover:shadow-md flex items-center gap-2"
+                  data-action="toggle-header-visibility"
+                  title="Masquer l'en-tête pour plus d'espace (Raccourci: H)">
+                  <i class="fas fa-angles-up"></i>
+                  <span>Masquer</span>
+                </button>
+              ` : ''}
+              <button type="button" class="text-slate-400 hover:text-slate-600 transition-colors p-2 hover:bg-slate-100 rounded-lg" data-action="close">
+                <i class="fas fa-times text-2xl"></i>
+              </button>
+            </div>
+          </div>
+
+        <nav class="flex items-center gap-2" data-stepper>
+          ${[1, 2, 3, 4, 5].map(step => `
+            <div class="flex items-center gap-2 flex-1">
+              <div class="stepper-step ${step <= state.currentStep ? 'active' : ''} ${step === state.currentStep ? 'current' : ''}" data-step="${step}">
+                <span class="step-number">${step}</span>
+                <span class="step-label">${getStepLabel(step)}</span>
+              </div>
+              ${step < 5 ? '<div class="step-connector"></div>' : ''}
+            </div>
+          `).join('')}
+        </nav>
+      </header>
+
+      <div class="flex-1 overflow-y-auto px-8 py-8" data-step-container>
+        ${renderStepContent()}
+      </div>
+
+      <footer class="border-t border-slate-200 bg-slate-50 px-8 py-5 flex items-center justify-between gap-4">
+        <div class="flex items-center gap-3 text-sm text-slate-600" data-footer-info>
+          ${getFooterInfo()}
+        </div>
+        <div class="flex items-center gap-3">
+          <button type="button" class="px-5 py-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold transition-colors" data-action="secondary">
+            ${getSecondaryButtonLabel()}
+          </button>
+          <button type="button" class="px-5 py-2.5 rounded-xl bg-gradient-to-r ${state.groupType ? GROUP_TYPES[state.groupType].color : 'from-indigo-600 to-purple-600'} text-white font-semibold shadow-lg hover:shadow-xl transition-all" data-action="primary">
+            ${getPrimaryButtonLabel()}
+          </button>
+        </div>
+      </footer>
+    `;
+
+    overlay.appendChild(panel);
+    documentRef.body.appendChild(overlay);
+    state.modal = overlay;
+
+    // Event listeners
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) closeModal();
+    });
+
+    attachEventListeners();
+
+    return overlay;
+  }
+
+  function closeModal() {
+    if (state.modal) {
+      state.modal.remove();
+      state.modal = null;
+    }
+    // Nettoyer les sortables
+    state.sortables.forEach(sortable => {
+      try {
+        sortable.destroy();
+      } catch (e) {}
+    });
+    state.sortables = [];
+  }
+
+  function getStepLabel(step) {
+    const labels = {
+      1: 'Type',
+      2: 'Classes',
+      3: 'Config',
+      4: 'Aperçu',
+      5: 'Groupes'
+    };
+    return labels[step] || '';
+  }
+
+  function getFooterInfo() {
+    if (state.currentStep === 5 && state.lastGeneration) {
+      return `<i class="fas fa-clock"></i> Généré le ${formatDate(state.lastGeneration)}`;
+    }
+    if (state.selectedClasses.length > 0) {
+      return `<i class="fas fa-users"></i> ${state.selectedClasses.length} classe(s) sélectionnée(s)`;
+    }
+    return '<i class="fas fa-info-circle"></i> Suivez les étapes pour créer vos groupes';
+  }
+
+  function getSecondaryButtonLabel() {
+    if (state.currentStep === 1) return 'Fermer';
+    if (state.currentStep === 5) return 'Recommencer';
+    return 'Précédent';
+  }
+
+  function getPrimaryButtonLabel() {
+    if (state.currentStep === 4) return 'Générer les groupes';
+    if (state.currentStep === 5) return 'Fermer';
+    return 'Continuer';
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  RENDU DES ÉTAPES
+  // ═══════════════════════════════════════════════════════════════
+
+  function renderStepContent() {
+    switch (state.currentStep) {
+      case 1: return renderStep1_ChooseType();
+      case 2: return renderStep2_SelectClasses();
+      case 3: return renderStep3_Configure();
+      case 4: return renderStep4_Preview();
+      case 5: return renderStep5_Groups();
+      default: return '<p class="text-center text-slate-500">Étape inconnue</p>';
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  ÉTAPE 1 : Choix du type de groupes
+  // ─────────────────────────────────────────────────────────────
+
+  function renderStep1_ChooseType() {
+    return `
+      <div class="max-w-5xl mx-auto">
+        <div class="text-center mb-10">
+          <h3 class="text-3xl font-bold text-slate-900 mb-3">Quel type de groupes souhaitez-vous créer ?</h3>
+          <p class="text-lg text-slate-600">Choisissez le mode de répartition adapté à vos besoins pédagogiques</p>
+        </div>
+
+        <div class="grid md:grid-cols-3 gap-6">
+          ${Object.values(GROUP_TYPES).map(type => `
+            <button
+              type="button"
+              class="group-type-card ${state.groupType === type.id ? 'selected' : ''} ${type.disabled ? 'disabled' : ''}"
+              data-type="${type.id}"
+              ${type.disabled ? 'disabled' : ''}
+            >
+              <div class="icon-wrapper">
+                <div class="icon">${type.icon}</div>
+              </div>
+              <h4 class="title">${type.title}</h4>
+              <p class="description">${type.description}</p>
+              ${type.disabled ? '<span class="badge-disabled">Bientôt disponible</span>' : ''}
+              ${state.groupType === type.id ? '<i class="fas fa-check-circle check-icon"></i>' : ''}
+            </button>
+          `).join('')}
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-6 mt-10">
+          <div class="info-card ${GROUP_TYPES.needs.bgColor} ${GROUP_TYPES.needs.borderColor}">
+            <div class="flex items-start gap-4">
+              <div class="text-4xl">${GROUP_TYPES.needs.icon}</div>
+              <div>
+                <h5 class="font-semibold text-slate-900 mb-2">Groupes de Besoins</h5>
+                <ul class="text-sm text-slate-700 space-y-1">
+                  <li><i class="fas fa-check text-blue-600 mr-2"></i>Scores Math/Français</li>
+                  <li><i class="fas fa-check text-blue-600 mr-2"></i>Critères COM, TRA, PART, ABS</li>
+                  <li><i class="fas fa-check text-blue-600 mr-2"></i>Groupes hétérogènes</li>
+                  <li><i class="fas fa-check text-blue-600 mr-2"></i>Parité F/M équilibrée</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="info-card ${GROUP_TYPES.language.bgColor} ${GROUP_TYPES.language.borderColor}">
+            <div class="flex items-start gap-4">
+              <div class="text-4xl">${GROUP_TYPES.language.icon}</div>
+              <div>
+                <h5 class="font-semibold text-slate-900 mb-2">Groupes LV2</h5>
+                <ul class="text-sm text-slate-700 space-y-1">
+                  <li><i class="fas fa-check text-purple-600 mr-2"></i>ESP / ITA / autres langues</li>
+                  <li><i class="fas fa-check text-purple-600 mr-2"></i>Priorité à PART (participation)</li>
+                  <li><i class="fas fa-check text-purple-600 mr-2"></i>Critères COM, TRA, ABS</li>
+                  <li><i class="fas fa-check text-purple-600 mr-2"></i>Parité F/M équilibrée</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  ÉTAPE 2 : Sélection des classes
+  // ─────────────────────────────────────────────────────────────
+
+  function renderStep2_SelectClasses() {
+    if (state.isLoading) {
+      return `
+        <div class="flex flex-col items-center justify-center py-20">
+          <div class="spinner-large mb-6"></div>
+          <p class="text-lg text-slate-600">Chargement des classes disponibles...</p>
+          <p class="text-sm text-slate-500 mt-2">Lecture des onglets avec suffixe FIN</p>
+        </div>
+      `;
+    }
+
+    if (state.loadError) {
+      return `
+        <div class="flex flex-col items-center justify-center py-20">
+          <i class="fas fa-circle-exclamation text-6xl text-red-500 mb-6"></i>
+          <p class="text-lg text-red-600 font-semibold mb-2">Erreur de chargement</p>
+          <p class="text-sm text-slate-600 mb-6">${state.loadError}</p>
+          <button type="button" class="px-6 py-3 rounded-xl bg-red-100 hover:bg-red-200 text-red-700 font-semibold transition-colors" data-action="retry-load">
+            <i class="fas fa-rotate-right mr-2"></i>Réessayer
+          </button>
+        </div>
+      `;
+    }
+
+    const pendingSet = new Set(state.pendingClasses);
+    const pendingCount = pendingSet.size;
+    const nextLabel = state.newRegroupementLabel || `Regroupement ${state.regroupements.length + 1}`;
+
+    return `
+      <div class="space-y-8">
+        <div class="text-center">
+          <h3 class="text-2xl font-bold text-slate-900 mb-2">Composez vos regroupements</h3>
+          <p class="text-slate-600">Sélectionnez les classes à associer puis enregistrez une passe par regroupement.</p>
+        </div>
+
+        <div class="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[320px_minmax(0,1fr)] items-start">
+          <section class="bg-slate-50 border border-slate-200 rounded-2xl p-6">
+            <div class="flex items-center justify-between mb-4">
+              <span class="text-sm font-semibold text-slate-700">
+                <i class="fas fa-layer-group mr-2"></i>${pendingCount} classe(s) sélectionnée(s)
+              </span>
+              <div class="flex gap-2">
+                <button type="button" class="px-4 py-2 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-sm font-medium transition-colors border border-slate-200" data-action="select-all-classes">
+                  Tout sélectionner
+                </button>
+                <button type="button" class="px-4 py-2 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-sm font-medium transition-colors border border-slate-200" data-action="deselect-all-classes">
+                  Tout désélectionner
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+              ${state.availableClasses.length === 0 ? `
+                <div class="text-center py-10 text-slate-500 border border-dashed border-slate-300 rounded-xl">
+                  <i class="fas fa-inbox text-4xl mb-3"></i>
+                  <p>Aucune classe avec suffixe FIN trouvée</p>
+                  <p class="text-sm mt-2">Vérifiez que vos onglets sont nommés correctement (ex: 6°1FIN)</p>
+                </div>
+              ` : state.availableClasses.map(classe => {
+                  const checked = pendingSet.has(classe);
+                  return `
+                    <label class="class-checkbox-card ${checked ? 'selected' : ''}">
+                      <input type="checkbox" class="class-checkbox" value="${classe}" ${checked ? 'checked' : ''}>
+                      <span class="class-name">${classe}</span>
+                      <i class="fas fa-check check-icon"></i>
+                    </label>
+                  `;
+                }).join('')}
+            </div>
+          </section>
+
+          <section class="space-y-6">
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              <div class="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <h4 class="text-lg font-semibold text-slate-900">Nouvelle passe</h4>
+                  <p class="text-sm text-slate-600">Les classes cochées seront regroupées et généreront ${state.newRegroupementGroupCount} groupe(s).</p>
+                </div>
+                <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
+                  <i class="fas fa-hashtag text-indigo-500"></i>${pendingCount} classe(s)
+                </span>
+              </div>
+
+              <div class="space-y-4">
+                <div>
+                  <label class="block text-sm font-semibold text-slate-700 mb-1" for="reg-label-input">Libellé du regroupement</label>
+                  <input id="reg-label-input" type="text" class="w-full rounded-xl border border-slate-300 focus:border-indigo-500 focus:ring-indigo-500 px-4 py-2 text-sm" data-input="new-pass-label" value="${escapeHtml(nextLabel)}" placeholder="ex. Passe 1 - 6ème A/B">
+                </div>
+
+                <div class="flex items-center gap-3">
+                  <div class="flex-1">
+                    <label class="block text-sm font-semibold text-slate-700 mb-1">Nombre de groupes</label>
+                    <div class="flex items-center gap-2">
+                      <button type="button" class="number-btn" data-action="decrement-new-pass">
+                        <i class="fas fa-minus"></i>
+                      </button>
+                      <span class="number-display" data-display="new-pass-count">${state.newRegroupementGroupCount}</span>
+                      <button type="button" class="number-btn" data-action="increment-new-pass">
+                        <i class="fas fa-plus"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="text-xs text-slate-500 bg-slate-100 rounded-xl px-3 py-2">
+                  ${pendingCount > 0
+                    ? `Classes sélectionnées : <span class="font-semibold text-slate-700">${Array.from(pendingSet).join(', ')}</span>`
+                    : 'Sélectionnez des classes dans la colonne de gauche pour composer un regroupement.'}
+                </div>
+
+                <button type="button" class="px-5 py-2.5 rounded-xl ${pendingCount === 0 ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white'} font-semibold transition-colors" data-action="create-regroupement" ${pendingCount === 0 ? 'disabled' : ''}>
+                  <i class="fas fa-plus mr-2"></i>Ajouter ce regroupement
+                </button>
+              </div>
+            </div>
+
+            <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+              <div class="flex items-center justify-between mb-4">
+                <div>
+                  <h4 class="text-lg font-semibold text-slate-900">Regroupements définis</h4>
+                  <p class="text-sm text-slate-600">Activez un regroupement pour le configurer et générer ses groupes.</p>
+                </div>
+                <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
+                  <i class="fas fa-layer-group text-indigo-500"></i>${state.regroupements.length}
+                </span>
+              </div>
+
+              ${renderRegroupementList()}
+            </div>
+          </section>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderRegroupementList() {
+    if (!Array.isArray(state.regroupements) || state.regroupements.length === 0) {
+      return `
+        <div class="p-5 bg-slate-50 border border-dashed border-slate-300 rounded-xl text-sm text-slate-500 text-center">
+          <p class="font-semibold mb-1">Aucun regroupement enregistré</p>
+          <p>Ajoutez un regroupement en sélectionnant des classes puis en cliquant sur «&nbsp;Ajouter ce regroupement&nbsp;».</p>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="space-y-3">
+        ${state.regroupements.map((reg, index) => renderRegroupementCard(reg, index)).join('')}
+      </div>
+    `;
+  }
+
+  function renderRegroupementCard(reg, index) {
+    const isActive = state.activeRegroupementId === reg.id;
+    const modeLabel = reg.persistMode === 'continue' ? 'Continuation' : 'Remplacement';
+    const hasRange = reg.offsetStart && reg.offsetEnd;
+    const rangeLabel = hasRange
+      ? `Groupes ${reg.offsetStart} → ${reg.offsetEnd}`
+      : 'Pas encore numéroté';
+    const tempLabel = reg.lastTempRange
+      ? `TEMP ${reg.lastTempRange.start} → ${reg.lastTempRange.end}`
+      : '';
+    const finalLabel = reg.lastFinalRange
+      ? `Finalisé ${reg.lastFinalRange.start} → ${reg.lastFinalRange.end}`
+      : '';
+
+    return `
+      <div class="border ${isActive ? 'border-indigo-500 bg-indigo-50/70' : 'border-slate-200 bg-white'} rounded-xl p-4 transition-all">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <p class="text-xs uppercase font-semibold text-slate-500 tracking-wide mb-1">Regroupement ${index + 1}</p>
+            <h4 class="text-base font-semibold text-slate-900">${escapeHtml(reg.label || `Regroupement ${index + 1}`)}</h4>
+            <p class="text-sm text-slate-600 mt-1">${Array.isArray(reg.classes) && reg.classes.length ? reg.classes.join(', ') : '—'}</p>
+            <p class="text-xs text-slate-500 mt-1">${reg.groupCount || 0} groupe(s) • ${Array.isArray(reg.classes) ? reg.classes.length : 0} classe(s)</p>
+            <div class="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+              <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-slate-100 font-semibold">
+                <i class="fas fa-layer-group text-indigo-500"></i>${modeLabel}
+              </span>
+              <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-slate-100">
+                <i class="fas fa-hashtag text-slate-500"></i>${rangeLabel}
+              </span>
+              ${tempLabel ? `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 text-blue-700"><i class="fas fa-floppy-disk"></i>${tempLabel}</span>` : ''}
+              ${finalLabel ? `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 text-green-700"><i class="fas fa-check-circle"></i>${finalLabel}</span>` : ''}
+            </div>
+          </div>
+          <div class="flex flex-col gap-2 items-end text-sm font-semibold">
+            <button type="button" class="px-3 py-1.5 rounded-lg ${isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}" data-action="activate-regroupement" data-regroupement-id="${reg.id}">
+              ${isActive ? '<i class="fas fa-eye mr-1"></i>Actif' : '<i class="fas fa-eye mr-1"></i>Afficher'}
+            </button>
+            <button type="button" class="px-3 py-1.5 rounded-lg bg-white border border-red-200 text-red-600 hover:bg-red-50" data-action="delete-regroupement" data-regroupement-id="${reg.id}">
+              <i class="fas fa-trash mr-1"></i>Supprimer
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function getActiveRegroupement() {
+    if (!Array.isArray(state.regroupements) || state.regroupements.length === 0) {
+      return null;
+    }
+    if (state.activeRegroupementId) {
+      const match = state.regroupements.find(reg => reg.id === state.activeRegroupementId);
+      if (match) {
+        return match;
+      }
+    }
+    return state.regroupements[0] || null;
+  }
+
+  // ✅ BLOCKER #3 FIX: Helpers pour accéder aux valeurs per-regroupement avec fallback au global
+  function getEffectivePersistMode() {
+    const regroupement = getActiveRegroupement();
+    return regroupement?.persistMode || state.persistMode || 'replace';
+  }
+
+  function getEffectiveOffsetStart() {
+    const regroupement = getActiveRegroupement();
+    return regroupement?.offsetStart || state.tempOffsetStart || 1;
+  }
+
+  function getEffectiveOffsetEnd() {
+    const regroupement = getActiveRegroupement();
+    return regroupement?.offsetEnd || null;
+  }
+
+  function getEffectiveLastTempRange() {
+    const regroupement = getActiveRegroupement();
+    return regroupement?.lastTempRange || state.lastTempRange || null;
+  }
+
+  function getEffectiveLastFinalRange() {
+    const regroupement = getActiveRegroupement();
+    return regroupement?.lastFinalRange || state.lastFinalRange || null;
+  }
+
+  function getRegroupementStatus() {
+    const regroupement = getActiveRegroupement();
+    if (!regroupement) return null;
+
+    const mode = getEffectivePersistMode();
+    const offsetStart = getEffectiveOffsetStart();
+    const offsetEnd = getEffectiveOffsetEnd();
+    const lastTemp = getEffectiveLastTempRange();
+    const lastFinal = getEffectiveLastFinalRange();
+
+    return {
+      regroupement: regroupement,
+      mode: mode,
+      offsetStart: offsetStart,
+      offsetEnd: offsetEnd,
+      lastTemp: lastTemp,
+      lastFinal: lastFinal,
+      hasTempSheets: !!lastTemp,
+      hasFinalSheets: !!lastFinal,
+      description: `${escapeHtml(regroupement.label || 'Regroupement')}: ${regroupement.classes?.join('+') || '—'} → ${regroupement.groupCount || 0} groupes`
+    };
+  }
+
+  // ✅ BLOCKER #3 FIX: Afficher plus de contexte sur la passe actuelle
+  function renderActiveRegroupementSummary() {
+    const regroupement = getActiveRegroupement();
+    if (!regroupement) {
+      return `
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 mb-6 text-sm text-amber-800 flex items-center gap-3">
+          <i class="fas fa-circle-info text-amber-600 text-lg"></i>
+          <div>
+            <p class="font-semibold">Aucun regroupement actif</p>
+            <p>Retournez à l'étape 2 pour ajouter des classes et créer une première passe.</p>
+          </div>
+        </div>
+      `;
+    }
+
+    const classesList = Array.isArray(regroupement.classes) && regroupement.classes.length
+      ? regroupement.classes.join(', ')
+      : '—';
+    const offsetStart = getEffectiveOffsetStart();
+    const offsetEnd = getEffectiveOffsetEnd();
+    const range = offsetStart && offsetEnd
+      ? `Groupes ${offsetStart} → ${offsetEnd}`
+      : 'Non numéroté';
+    const persistMode = getEffectivePersistMode();
+    const lastFinal = getEffectiveLastFinalRange();
+
+    // Contexte pédagogique: expliquer quelle passe on est en train de faire
+    let passContext = '';
+    if (lastFinal && persistMode === 'continue') {
+      passContext = `<p class="text-xs text-indigo-600 mt-1">📊 Cette passe continue après les groupes 1-${lastFinal.end}</p>`;
+    } else if (persistMode === 'replace' && lastFinal) {
+      passContext = `<p class="text-xs text-indigo-600 mt-1">🔄 Cette passe remplacera les groupes précédents (${lastFinal.start}-${lastFinal.end})</p>`;
+    }
+
+    return `
+      <div class="bg-indigo-50 border border-indigo-200 rounded-2xl px-5 py-4 mb-6 flex flex-wrap items-center justify-between gap-4 text-sm text-indigo-900">
+        <div>
+          <p class="text-xs uppercase tracking-wide font-semibold text-indigo-600">Regroupement actif</p>
+          <p class="text-lg font-semibold text-indigo-900">${escapeHtml(regroupement.label || 'Regroupement')}</p>
+          <p class="text-sm text-indigo-700">${classesList}</p>
+          ${passContext}
+        </div>
+        <div class="flex items-center gap-3 text-xs">
+          <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-white border border-indigo-200 font-semibold">
+            <i class="fas fa-layer-group text-indigo-500"></i>${regroupement.groupCount || 0} groupe(s)
+          </span>
+          <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-white border border-indigo-200">
+            <i class="fas fa-hashtag text-indigo-500"></i>${range}
+          </span>
+          <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full ${persistMode === 'continue' ? 'bg-blue-100 border-blue-300' : 'bg-white border-indigo-200'}">
+            <i class="fas fa-repeat text-indigo-500"></i>${persistMode === 'continue' ? 'Continuation' : 'Remplacement'}
+          </span>
+        </div>
+      </div>
+    `;
+  }
+
+  function createRegroupementFromSelection() {
+    const classes = Array.from(new Set(state.pendingClasses));
+    if (classes.length === 0) {
+      showToast('Sélectionnez au moins une classe pour créer un regroupement', 'warning');
+      return;
+    }
+
+    const label = (state.newRegroupementLabel || '').trim() || `Regroupement ${state.regroupements.length + 1}`;
+    const groupCount = Math.max(1, state.newRegroupementGroupCount || state.numGroups || 1);
+    const persistMode = state.regroupements.length === 0 ? 'replace' : 'continue';
+    const suggestedOffset = persistMode === 'replace'
+      ? 1
+      : (state.continuationData?.suggestedNextIndex || state.tempOffsetStart || 1);
+
+    const regroupement = {
+      id: `reg-${Date.now()}`,
+      label,
+      classes,
+      groupCount,
+      persistMode,
+      offsetStart: suggestedOffset,
+      offsetEnd: null,
+      lastTempRange: null,
+      lastFinalRange: null
+    };
+
+    state.regroupements.push(regroupement);
+    state.pendingClasses = [];
+    state.newRegroupementLabel = '';
+    state.newRegroupementGroupCount = groupCount;
+    state.activeRegroupementId = regroupement.id;
+    syncActiveRegroupementState();
+    updateUI();
+  }
+
+  function deleteRegroupement(regroupementId) {
+    if (!regroupementId) return;
+    state.regroupements = state.regroupements.filter(reg => reg.id !== regroupementId);
+    if (state.groupsByRegroupement) {
+      delete state.groupsByRegroupement[regroupementId];
+    }
+    if (state.activeRegroupementId === regroupementId) {
+      state.activeRegroupementId = state.regroupements.length ? state.regroupements[0].id : null;
+    }
+    syncActiveRegroupementState();
+    updateUI();
+  }
+
+  function activateRegroupement(regroupementId) {
+    if (!regroupementId || state.activeRegroupementId === regroupementId) return;
+    state.activeRegroupementId = regroupementId;
+    syncActiveRegroupementState();
+    updateUI();
+  }
+
+  function syncActiveRegroupementState() {
+    const regroupement = getActiveRegroupement();
+    if (!regroupement) {
+      state.selectedClasses = [];
+      state.numGroups = 3;
+      state.persistMode = 'replace';
+      state.tempOffsetStart = 1;
+      state.generatedGroups = [];
+      state.students = [];
+      state.studentsById = new Map();
+      return;
+    }
+
+    state.selectedClasses = [...regroupement.classes];
+    state.numGroups = regroupement.groupCount || state.numGroups || 3;
+    state.persistMode = regroupement.persistMode || state.persistMode || 'replace';
+    state.tempOffsetStart = regroupement.offsetStart || (state.persistMode === 'continue' ? (state.continuationData?.suggestedNextIndex || 1) : 1);
+
+    const stored = state.groupsByRegroupement?.[regroupement.id];
+    if (stored && Array.isArray(stored.groups)) {
+      state.generatedGroups = stored.groups.map(group => ({
+        ...group,
+        students: group.students.map(student => ({ ...student }))
+      }));
+      // Récupérer les élèves du regroupement sauvegardé
+      const allStudentsInGroups = [];
+      stored.groups.forEach(group => {
+        if (Array.isArray(group.students)) {
+          allStudentsInGroups.push(...group.students);
+        }
+      });
+      state.students = allStudentsInGroups;
+      state.studentsById = new Map(allStudentsInGroups.map(s => [s.id, s]));
+    } else {
+      state.generatedGroups = [];
+      state.students = [];
+      state.studentsById = new Map();
+    }
+
+    // 🟢 FIX #2 : Rafraîchir les langues disponibles après changement de regroupement
+    if (state.groupType === 'language') {
+      detectAvailableLanguages();
+    }
+
+    applyOffsetToGeneratedGroups();
+  }
+
+  function updateNewRegroupementCount(delta) {
+    state.newRegroupementGroupCount = Math.max(1, Math.min(12, (state.newRegroupementGroupCount || 1) + delta));
+    updateUI();
+  }
+
+  function updateActiveRegroupementGroupCount(value) {
+    const regroupement = getActiveRegroupement();
+    if (regroupement) {
+      regroupement.groupCount = value;
+    }
+  }
+
+  function setPersistMode(mode) {
+    const normalized = mode === 'continue' ? 'continue' : 'replace';
+    if (state.persistMode === normalized) return;
+    state.persistMode = normalized;
+    const regroupement = getActiveRegroupement();
+    if (regroupement) {
+      regroupement.persistMode = normalized;
+    }
+
+    if (normalized === 'replace') {
+      state.tempOffsetStart = 1;
+    } else {
+      const suggestion = state.continuationData?.suggestedNextIndex
+        || (regroupement?.offsetEnd ? regroupement.offsetEnd + 1 : null)
+        || state.tempOffsetStart
+        || 1;
+      state.tempOffsetStart = Math.max(1, suggestion);
+    }
+
+    applyOffsetToGeneratedGroups();
+    updateUI();
+  }
+
+  function handleOffsetInput(e) {
+    const value = parseInt(e.target.value, 10);
+    if (!Number.isFinite(value) || value < 1) {
+      return;
+    }
+    state.tempOffsetStart = value;
+    const regroupement = getActiveRegroupement();
+    if (regroupement) {
+      regroupement.offsetStart = value;
+      if (state.generatedGroups.length > 0) {
+        regroupement.offsetEnd = value + state.generatedGroups.length - 1;
+      }
+    }
+    applyOffsetToGeneratedGroups();
+    updateUI();
+  }
+
+  function applyOffsetToGeneratedGroups() {
+    if (!Array.isArray(state.generatedGroups) || state.generatedGroups.length === 0) return;
+
+    const base = Number(state.tempOffsetStart) || 1;
+
+    state.generatedGroups.forEach((group, idx) => {
+      const existing = Number(group.index);
+      const index = Number.isFinite(existing) && existing > 0 ? existing : base + idx;
+      group.index = index;
+      group.name = `Groupe ${index}`;
+    });
+
+    storeGeneratedGroupsForActiveRegroupement();
+  }
+
+  function storeGeneratedGroupsForActiveRegroupement() {
+    const regroupement = getActiveRegroupement();
+    if (!regroupement) return;
+    if (!state.groupsByRegroupement) state.groupsByRegroupement = {};
+
+    state.groupsByRegroupement[regroupement.id] = {
+      groups: state.generatedGroups.map(group => ({
+        ...group,
+        students: group.students.map(student => ({ ...student }))
+      })),
+      updatedAt: new Date().toISOString()
+    };
+
+    regroupement.groupCount = state.generatedGroups.length || regroupement.groupCount || state.numGroups;
+    regroupement.persistMode = state.persistMode;
+
+    if (state.generatedGroups.length > 0) {
+      const indexes = state.generatedGroups
+        .map(group => Number(group.index))
+        .filter(idx => Number.isFinite(idx) && idx > 0);
+
+      if (indexes.length > 0) {
+        const minIndex = Math.min(...indexes);
+        const maxIndex = Math.max(...indexes);
+        regroupement.offsetStart = minIndex;
+        regroupement.offsetEnd = maxIndex;
+
+        if (state.persistMode === 'replace') {
+          state.tempOffsetStart = minIndex;
+        }
+      } else {
+        const fallbackStart = state.tempOffsetStart || regroupement.offsetStart || 1;
+        regroupement.offsetStart = fallbackStart;
+        regroupement.offsetEnd = fallbackStart + state.generatedGroups.length - 1;
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  ÉTAPE 3 : Configuration
+  // ─────────────────────────────────────────────────────────────
+
+  function renderStep3_Configure() {
+    const isNeeds = state.groupType === 'needs';
+    const isLanguage = state.groupType === 'language';
+
+    return `
+      <div class="max-w-6xl mx-auto">
+        <div class="text-center mb-4">
+          <h3 class="text-xl font-bold text-slate-900 mb-2">Configuration des groupes</h3>
+          <p class="text-sm text-slate-600">Définissez les paramètres de génération</p>
+        </div>
+
+        ${renderActiveRegroupementSummary()}
+
+        <div class="grid md:grid-cols-2 gap-4 mb-4">
+        <div class="config-card">
+          <div class="config-header">
+            <i class="fas fa-layer-group text-2xl text-indigo-600"></i>
+            <div>
+              <h4 class="font-semibold text-slate-900">Nombre de groupes</h4>
+              <p class="text-sm text-slate-600">Combien de groupes voulez-vous créer ?</p>
+            </div>
+          </div>
+          <div class="config-body">
+            <div class="flex items-center gap-6">
+              <input
+                type="range"
+                min="1"
+                max="10"
+                value="${state.numGroups}"
+                class="flex-1 accent-indigo-600"
+                data-input="numGroups"
+              >
+              <div class="flex items-center gap-3">
+                <button type="button" class="number-btn" data-action="decrement-groups">
+                  <i class="fas fa-minus"></i>
+                </button>
+                <span class="number-display" data-display="numGroups">${state.numGroups}</span>
+                <button type="button" class="number-btn" data-action="increment-groups">
+                  <i class="fas fa-plus"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        ${isNeeds ? `
+          <div class="config-card">
+            <div class="config-header">
+              <i class="fas fa-chart-line text-2xl text-blue-600"></i>
+              <div>
+                <h4 class="font-semibold text-slate-900">Matière de référence</h4>
+                <p class="text-sm text-slate-600">Sur quels scores baser la répartition ?</p>
+              </div>
+            </div>
+            <div class="config-body">
+              <div class="grid grid-cols-1 gap-3">
+                ${Object.values(SUBJECTS).map(subject => `
+                  <label class="radio-card ${state.selectedSubject === subject.id ? 'selected' : ''}">
+                    <input
+                      type="radio"
+                      name="subject"
+                      value="${subject.id}"
+                      ${state.selectedSubject === subject.id ? 'checked' : ''}
+                    >
+                    <div class="flex items-center gap-3">
+                      <span class="text-2xl">${subject.icon}</span>
+                      <span class="font-medium">${subject.label}</span>
+                    </div>
+                    <i class="fas fa-check-circle check-icon"></i>
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+
+          <div class="config-card">
+            <div class="config-header">
+              <i class="fas fa-shuffle text-2xl text-purple-600"></i>
+              <div>
+                <h4 class="font-semibold text-slate-900">Type de répartition</h4>
+                <p class="text-sm text-slate-600">Comment mélanger les niveaux ?</p>
+              </div>
+            </div>
+            <div class="config-body">
+              <div class="grid grid-cols-1 gap-3">
+                ${Object.values(DISTRIBUTION_TYPES).map(dist => `
+                  <label class="radio-card ${state.distributionType === dist.id ? 'selected' : ''}">
+                    <input
+                      type="radio"
+                      name="distribution"
+                      value="${dist.id}"
+                      ${state.distributionType === dist.id ? 'checked' : ''}
+                    >
+                    <div class="flex-1">
+                      <span class="font-medium">${dist.label}</span>
+                      ${dist.recommended ? '<span class="badge-recommended ml-2">Recommandé</span>' : ''}
+                    </div>
+                    <i class="fas fa-check-circle check-icon"></i>
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        </div>
+        ` : ''}
+
+        ${isLanguage ? `
+        <div class="grid md:grid-cols-1 gap-4">
+          <div class="config-card">
+            <div class="config-header">
+              <i class="fas fa-language text-2xl text-purple-600"></i>
+              <div>
+                <h4 class="font-semibold text-slate-900">Langue à répartir</h4>
+                <p class="text-sm text-slate-600">Quelle LV2 souhaitez-vous regrouper ?</p>
+              </div>
+            </div>
+            <div class="config-body">
+              <div class="grid grid-cols-2 gap-3">
+                ${['ESP', 'ITA', 'ALL', 'AUTRE'].map(lang => {
+                  const langInfo = state.availableLanguages.find(l => l.lang === lang);
+                  const count = langInfo ? langInfo.count : 0;
+                  const hasStudents = count > 0;
+                  return `
+                  <label class="radio-card ${state.selectedLanguage === lang ? 'selected' : ''} ${!hasStudents ? 'opacity-50' : ''}">
+                    <input
+                      type="radio"
+                      name="language"
+                      value="${lang}"
+                      ${state.selectedLanguage === lang ? 'checked' : ''}
+                      ${!hasStudents ? 'disabled' : ''}
+                    >
+                    <div class="flex items-center justify-between gap-2 w-full">
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium">${lang === 'ESP' ? 'Espagnol' : lang === 'ITA' ? 'Italien' : lang === 'ALL' ? 'Allemand' : 'Autre'}</span>
+                        ${lang === 'ESP' ? '<span class="text-xl">🇪🇸</span>' : lang === 'ITA' ? '<span class="text-xl">🇮🇹</span>' : lang === 'ALL' ? '<span class="text-xl">🇩🇪</span>' : '<span class="text-xl">🌍</span>'}
+                      </div>
+                      ${hasStudents ? `<span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">${count}</span>` : '<span class="text-xs text-slate-400">0</span>'}
+                    </div>
+                    <i class="fas fa-check-circle check-icon"></i>
+                  </label>
+                `;
+                }).join('')}
+              </div>
+              ${state.availableLanguages.length > 0 ? `
+                <div class="mt-3 text-xs text-slate-600 bg-slate-50 rounded-lg px-3 py-2">
+                  <i class="fas fa-users mr-1"></i>
+                  Langues détectées : ${state.availableLanguages.map(l => `<strong>${l.lang}</strong> (${l.count})`).join(', ')}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+
+          <div class="bg-purple-50 border border-purple-200 rounded-xl p-3 flex items-start gap-3 mt-4">
+            <i class="fas fa-info-circle text-purple-600 text-xl mt-0.5"></i>
+            <div class="text-sm text-purple-900">
+              <p class="font-semibold mb-1">À propos de la langue :</p>
+              <p class="text-xs">Les élèves de la langue sélectionnée seront répartis en <strong>${state.numGroups} groupe(s)</strong>. La <strong>participation (PART)</strong> sera le critère prioritaire.</p>
+              ${state.availableLanguages.length === 0 ? '<p class="mt-2 text-purple-700"><i class="fas fa-exclamation-triangle mr-1"></i>Aucune langue LV2 détectée dans les classes sélectionnées.</p>' : ''}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  ÉTAPE 4 : Aperçu avant génération
+  // ─────────────────────────────────────────────────────────────
+
+  function renderStep4_Preview() {
+    const config = getConfigSummary();
+    const stats = calculateStep4Stats();
+    const warnings = getStep4Warnings(stats);
+    const recommendation = getAlgoRecommendation(stats);
+
+    return `
+      <div class="max-w-4xl mx-auto">
+        <div class="text-center mb-8">
+          <h3 class="text-2xl font-bold text-slate-900 mb-3">Vérification avant génération</h3>
+          <p class="text-slate-600">Vérifiez la configuration et les statistiques pré-génération</p>
+        </div>
+
+        <!-- STATISTIQUES GLOBALES -->
+        <div class="grid md:grid-cols-4 gap-4 mb-8">
+          <div class="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4">
+            <p class="text-xs uppercase font-semibold text-blue-700 mb-2">Total élèves</p>
+            <p class="text-2xl font-bold text-blue-900">${stats.totalStudents}</p>
+          </div>
+          <div class="bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-xl p-4">
+            <p class="text-xs uppercase font-semibold text-purple-700 mb-2">Total groupes</p>
+            <p class="text-2xl font-bold text-purple-900">${stats.totalGroups}</p>
+          </div>
+          <div class="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl p-4">
+            <p class="text-xs uppercase font-semibold text-emerald-700 mb-2">Taille/groupe</p>
+            <p class="text-2xl font-bold text-emerald-900">~${stats.avgGroupSize}</p>
+          </div>
+          <div class="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-4">
+            <p class="text-xs uppercase font-semibold text-amber-700 mb-2">Temps estimé</p>
+            <p class="text-2xl font-bold text-amber-900">${stats.estimatedTime}</p>
+          </div>
+        </div>
+
+        ${warnings.length > 0 ? `
+          <!-- WARNINGS -->
+          <div class="mb-8 bg-amber-50 border border-amber-200 rounded-xl p-4">
+            <h4 class="font-semibold text-amber-900 mb-3 flex items-center gap-2">
+              <i class="fas fa-triangle-exclamation"></i>
+              Vérifications
+            </h4>
+            <div class="space-y-2">
+              ${warnings.map(w => `
+                <div class="flex items-start gap-2 text-sm text-amber-900">
+                  <i class="fas fa-exclamation-circle mt-0.5 flex-shrink-0"></i>
+                  <span>${w}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : `
+          <!-- OK -->
+          <div class="mb-8 bg-green-50 border border-green-200 rounded-xl p-4">
+            <div class="flex items-center gap-2 text-green-900 font-semibold">
+              <i class="fas fa-check-circle"></i>
+              Configuration validée ✓
+            </div>
+          </div>
+        `}
+
+        ${recommendation ? `
+          <!-- RECOMMANDATION ALGO -->
+          <div class="mb-8 bg-blue-50 border border-blue-200 rounded-xl p-4">
+            <h4 class="font-semibold text-blue-900 mb-2 flex items-center gap-2">
+              <i class="fas fa-lightbulb"></i>
+              Recommandation
+            </h4>
+            <p class="text-sm text-blue-800">${recommendation}</p>
+          </div>
+        ` : ''}
+
+        <div class="grid md:grid-cols-2 gap-6 mb-8">
+          <div class="summary-card">
+            <div class="summary-icon ${GROUP_TYPES[state.groupType].color}">
+              ${GROUP_TYPES[state.groupType].icon}
+            </div>
+            <div>
+              <p class="summary-label">Type de groupes</p>
+              <p class="summary-value">${GROUP_TYPES[state.groupType].title}</p>
+            </div>
+          </div>
+
+          <div class="summary-card">
+            <div class="summary-icon bg-gradient-to-br from-indigo-600 to-purple-600">
+              <i class="fas fa-layer-group"></i>
+            </div>
+            <div>
+              <p class="summary-label">Nombre de groupes</p>
+              <p class="summary-value">${state.numGroups} groupe(s)</p>
+            </div>
+          </div>
+
+          <div class="summary-card md:col-span-2">
+            <div class="summary-icon bg-gradient-to-br from-emerald-600 to-teal-600">
+              <i class="fas fa-school"></i>
+            </div>
+            <div class="flex-1">
+              <p class="summary-label">Classes sélectionnées</p>
+              <p class="summary-value">${state.selectedClasses.length} classe(s)</p>
+              <div class="flex flex-wrap gap-2 mt-2">
+                ${state.selectedClasses.map(c => `
+                  <span class="px-3 py-1 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium">${c}</span>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+
+          ${config.map(item => `
+            <div class="summary-card">
+              <div class="summary-icon ${item.color}">
+                <i class="fas ${item.icon}"></i>
+              </div>
+              <div>
+                <p class="summary-label">${item.label}</p>
+                <p class="summary-value">${item.value}</p>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="bg-gradient-to-br from-slate-50 to-slate-100 rounded-2xl p-6 border border-slate-200">
+          <h4 class="font-semibold text-slate-900 mb-4 flex items-center gap-2">
+            <i class="fas fa-list-check text-indigo-600"></i>
+            Critères de répartition appliqués
+          </h4>
+          <div class="grid md:grid-cols-2 gap-3">
+            ${getCriteriaList().map(criterion => `
+              <div class="flex items-center gap-2 text-sm text-slate-700">
+                <i class="fas fa-check-circle text-green-600"></i>
+                <span>${criterion}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+          <i class="fas fa-triangle-exclamation text-amber-600 text-xl mt-0.5"></i>
+          <div class="text-sm text-amber-900">
+            <p class="font-semibold mb-1">Attention :</p>
+            <p>La génération peut prendre quelques secondes selon le nombre d'élèves. L'algorithme optimise la répartition pour respecter tous les critères.</p>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function getConfigSummary() {
+    const items = [];
+
+    if (state.groupType === 'needs') {
+      items.push({
+        label: 'Matière de référence',
+        value: SUBJECTS[state.selectedSubject].label,
+        icon: 'fa-chart-line',
+        color: 'bg-gradient-to-br from-blue-600 to-indigo-600'
+      });
+      items.push({
+        label: 'Type de répartition',
+        value: DISTRIBUTION_TYPES[state.distributionType].label,
+        icon: 'fa-shuffle',
+        color: 'bg-gradient-to-br from-purple-600 to-pink-600'
+      });
+    }
+
+    if (state.groupType === 'language') {
+      const langLabels = { ESP: 'Espagnol', ITA: 'Italien', ALL: 'Allemand', AUTRE: 'Autre' };
+      items.push({
+        label: 'Langue ciblée',
+        value: langLabels[state.selectedLanguage] || state.selectedLanguage,
+        icon: 'fa-language',
+        color: 'bg-gradient-to-br from-purple-600 to-pink-600'
+      });
+    }
+
+    return items;
+  }
+
+  function getCriteriaList() {
+    const base = [
+      'Parité Filles/Garçons équilibrée',
+      'Effectifs harmonisés (±1-2 élèves)',
+      'Critères COM, TRA, PART, ABS'
+    ];
+
+    if (state.groupType === 'needs') {
+      return [
+        'Scores Math/Français (groupes hétérogènes)',
+        ...base,
+        'Tous niveaux mélangés dans chaque groupe'
+      ];
+    }
+
+    if (state.groupType === 'language') {
+      return [
+        'Participation (PART) - Critère prioritaire',
+        ...base,
+        'Répartition équilibrée par langue'
+      ];
+    }
+
+    return base;
+  }
+
+  // ═══ PHASE 4 - VALIDATION & STATS ═══
+  function calculateStep4Stats() {
+    // ✅ FIX #3 : Use actual student count from selected classes, not filtered students
+    // state.students may be filtered by language, so we need to count from source
+    let totalStudents = 0;
+    if (state.selectedClasses && state.selectedClasses.length > 0) {
+      state.selectedClasses.forEach(className => {
+        const classData = allStudentsByClass[className];
+        if (classData && Array.isArray(classData.eleves)) {
+          totalStudents += classData.eleves.length;
+        }
+      });
+    } else {
+      totalStudents = state.students.length;
+    }
+
+    const totalGroups = state.numGroups;
+    const avgGroupSize = totalStudents > 0 ? Math.round(totalStudents / totalGroups) : 0;
+    const estimatedTime = totalStudents > 100 ? '8-12 sec' : totalStudents > 50 ? '5-8 sec' : '2-4 sec';
+
+    return {
+      totalStudents,
+      totalGroups,
+      avgGroupSize,
+      estimatedTime
+    };
+  }
+
+  function getStep4Warnings(stats) {
+    const warnings = [];
+
+    if (stats.totalStudents === 0) {
+      warnings.push('⚠️ Aucun élève détecté. Vérifiez la sélection des classes.');
+    }
+
+    if (stats.totalStudents < 10) {
+      warnings.push('⚠️ Classe très petite (< 10 élèves). Les groupes seront petit.');
+    }
+
+    if (stats.avgGroupSize < 5) {
+      warnings.push('⚠️ Groupes très petits (< 5 élèves). Considérez réduire le nombre de groupes.');
+    }
+
+    if (stats.avgGroupSize > 25) {
+      warnings.push('⚠️ Groupes très grands (> 25 élèves). Considérez augmenter le nombre de groupes.');
+    }
+
+    if (stats.totalStudents % stats.totalGroups !== 0) {
+      const remainder = stats.totalStudents % stats.totalGroups;
+      warnings.push(`ℹ️ Effectifs inégaux: ${remainder} groupe(s) aura/auront 1 élève de plus.`);
+    }
+
+    return warnings;
+  }
+
+  function getAlgoRecommendation(stats) {
+    if (state.groupType !== 'needs') return '';
+
+    // Recommandation hétéro vs homo basée sur la taille
+    if (stats.avgGroupSize < 8) {
+      return '💡 Avec des groupes si petits, la répartition hétérogène garantit un vrai mélange des niveaux.';
+    }
+
+    if (stats.avgGroupSize > 20) {
+      return '💡 Avec de grands groupes, une répartition homogène (par niveau) pourrait être intéressante pour la différenciation.';
+    }
+
+    return '💡 La distribution hétérogène est recommandée pour un vrai mélange pédagogique dans chaque groupe.';
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  //  ÉTAPE 5 : Affichage des groupes avec Drag & Drop
+  // ─────────────────────────────────────────────────────────────
+
+  function renderStep5_Groups() {
+    const regroupement = getActiveRegroupement();
+
+    if (state.isLoading) {
+      return `
+        <div class="flex flex-col items-center justify-center py-20">
+          <div class="spinner-large mb-6"></div>
+          <p class="text-lg text-slate-600 font-semibold">Génération des groupes en cours...</p>
+          <p class="text-sm text-slate-500 mt-2">L'algorithme équilibre les élèves selon vos critères.</p>
+          <div class="mt-6 flex items-center gap-2 text-xs text-slate-400">
+            <div class="w-2 h-2 bg-indigo-500 rounded-full animate-pulse"></div>
+            <div class="w-2 h-2 bg-purple-500 rounded-full animate-pulse delay-100"></div>
+            <div class="w-2 h-2 bg-pink-500 rounded-full animate-pulse delay-200"></div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (!regroupement) {
+      return `
+        <div class="flex flex-col items-center justify-center py-20 text-center">
+          <i class="fas fa-layer-group text-5xl text-slate-300 mb-4"></i>
+          <p class="text-lg text-slate-600 font-semibold mb-2">Aucun regroupement actif</p>
+          <p class="text-sm text-slate-500 max-w-md">Revenez à l'étape 2 pour sélectionner des classes et créer au moins un regroupement avant de générer les groupes.</p>
+        </div>
+      `;
+    }
+
+    if (!state.generatedGroups || state.generatedGroups.length === 0) {
+      return `
+        <div class="space-y-6">
+          ${renderActiveRegroupementSummary()}
+          ${renderRegroupementTabs()}
+          ${renderPersistenceControls(regroupement)}
+          <div class="bg-white border border-slate-200 rounded-2xl p-10 text-center text-slate-500">
+            <i class="fas fa-inbox text-5xl mb-4"></i>
+            <p class="text-lg font-semibold text-slate-700 mb-2">Aucun groupe généré</p>
+            <p class="text-sm mb-6">Lancez la génération pour créer les groupes de ce regroupement.</p>
+            <button type="button" class="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition-colors" data-action="regenerate">
+              <i class="fas fa-rotate-right mr-2"></i>Générer maintenant
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="space-y-6 ${state.focusMode ? 'focus-mode' : ''}">
+        ${state.focusMode ? '' : renderActiveRegroupementSummary()}
+        ${state.focusMode ? '' : renderRegroupementTabs()}
+        ${state.focusMode ? '' : renderPersistenceControls(regroupement)}
+        ${renderActionToolbar()}
+
+        <div class="${state.showStatistics && !state.focusMode ? 'grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,360px)]' : ''} items-start">
+          <div>
+            <div class="grid gap-4" id="groups-container" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+              ${state.generatedGroups.map((group, index) => renderGroupCard(group, index)).join('')}
+            </div>
+          </div>
+
+          ${state.showStatistics && !state.focusMode ? `<div class="w-full max-w-[360px]">${renderStatisticsPanel()}</div>` : ''}
+        </div>
+
+        ${state.focusMode ? '' : `<div class="mt-6 bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex items-start gap-3">
+          <i class="fas fa-hand-pointer text-indigo-600 text-xl mt-0.5"></i>
+          <div class="text-sm text-indigo-900">
+            <p class="font-semibold mb-1">Glisser-déposer activé :</p>
+            <p>Rééquilibrez vos groupes en déplaçant les élèves. Les statistiques et l'ordre sont mis à jour instantanément.</p>
+          </div>
+        </div>`}
+      </div>
+    `;
+  }
+
+  function renderRegroupementTabs() {
+    if (!Array.isArray(state.regroupements) || state.regroupements.length <= 1) {
+      return '';
+    }
+
+    return `
+      <div class="flex flex-wrap gap-2">
+        ${state.regroupements.map((reg, index) => {
+          const isActive = state.activeRegroupementId === reg.id;
+          return `
+            <button type="button" class="px-4 py-2 rounded-full text-sm font-semibold border ${isActive ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'}" data-action="activate-regroupement" data-regroupement-id="${reg.id}">
+              <i class="fas fa-layer-group mr-1"></i>${escapeHtml(reg.label || `Regroupement ${index + 1}`)}
+            </button>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  // ✅ BLOCKER #3 FIX: Utiliser les helpers per-regroupement
+  function renderPersistenceControls(regroupement) {
+    const offsetValue = getEffectiveOffsetStart();
+    const persistMode = getEffectivePersistMode();
+    const lastTemp = getEffectiveLastTempRange();
+    const lastFinal = getEffectiveLastFinalRange();
+
+    // Context banner pour expliquer le mode actuel
+    let contextBanner = '';
+    if (persistMode === 'continue' && lastFinal) {
+      contextBanner = `
+        <div class="mb-4 bg-blue-50 border border-blue-200 rounded-xl p-3 text-sm text-blue-900 flex items-start gap-2">
+          <i class="fas fa-info-circle text-blue-600 mt-0.5 flex-shrink-0"></i>
+          <div>
+            <p class="font-semibold mb-1">Mode Continuation activé</p>
+            <p class="text-xs">Les groupes continueront à partir du numéro ${lastFinal.end + 1} (après les groupes finalisés précédents).</p>
+          </div>
+        </div>
+      `;
+    } else if (persistMode === 'replace' && lastFinal) {
+      contextBanner = `
+        <div class="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900 flex items-start gap-2">
+          <i class="fas fa-warning text-amber-600 mt-0.5 flex-shrink-0"></i>
+          <div>
+            <p class="font-semibold mb-1">Mode Remplacement activé</p>
+            <p class="text-xs">Les groupes remplaceront les onglets finalisés précédents de ce regroupement (${lastFinal.start}-${lastFinal.end}).</p>
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      ${contextBanner}
+      <div class="bg-white border border-slate-200 rounded-2xl px-5 py-4 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <button type="button" class="px-4 py-2 rounded-xl text-sm font-semibold border ${persistMode === 'replace' ? 'bg-indigo-600 text-white border-indigo-600 shadow' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'}" data-action="set-persist-mode" data-value="replace">
+              <i class="fas fa-repeat mr-1"></i>Remplacer
+            </button>
+            <button type="button" class="px-4 py-2 rounded-xl text-sm font-semibold border ${persistMode === 'continue' ? 'bg-indigo-600 text-white border-indigo-600 shadow' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-100'}" data-action="set-persist-mode" data-value="continue">
+              <i class="fas fa-layer-group mr-1"></i>Continuer
+            </button>
+          </div>
+
+          <div class="flex items-center gap-2 text-sm">
+            <label class="font-semibold text-slate-700" for="offset-input">Numéro de départ</label>
+            <input id="offset-input" type="number" min="1" class="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-indigo-500" data-input="offset-start" value="${offsetValue}">
+          </div>
+
+          <div class="flex flex-col gap-1 text-xs text-slate-500">
+            ${lastTemp ? `<span><i class="fas fa-floppy-disk mr-1 text-slate-400"></i>TEMP ${lastTemp.start} → ${lastTemp.end}</span>` : ''}
+            ${lastFinal ? `<span><i class="fas fa-check-circle mr-1 text-slate-400"></i>Final ${lastFinal.start} → ${lastFinal.end}</span>` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderActionToolbar() {
+    // Mode focus ultra-compact
+    if (state.focusMode) {
+      return `
+        <div class="action-toolbar bg-white border-t border-slate-200 px-3 py-2 shadow-sm flex items-center gap-1 flex-wrap overflow-x-auto">
+          <button type="button" class="action-btn-micro ${state.showStatistics ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'}" data-action="toggle-statistics" title="Stats (S)"><i class="fas fa-chart-bar"></i></button>
+          <button type="button" class="action-btn-micro bg-slate-100 text-slate-700" data-action="regenerate" title="Regen"><i class="fas fa-rotate-right"></i></button>
+          <div class="h-5 w-px bg-slate-300 mx-1"></div>
+          <button type="button" class="action-btn-micro bg-slate-100 text-slate-700" data-action="load-temp-groups" title="Load"><i class="fas fa-download"></i></button>
+          <button type="button" class="action-btn-micro bg-orange-500 hover:bg-orange-600 text-white" data-action="save-temp-groups" title="Save"><i class="fas fa-save"></i></button>
+          <button type="button" id="toggle-interface-v4-micro" class="action-btn-micro bg-purple-600 hover:bg-purple-700 text-white" title="V4"><i class="fas fa-sparkles"></i></button>
+          <button type="button" class="action-btn-micro bg-green-600 hover:bg-green-700 text-white" data-action="finalize-temp-groups" title="Final"><i class="fas fa-check"></i></button>
+          <div class="h-5 w-px bg-slate-300 mx-1"></div>
+          <button type="button" class="action-btn-micro bg-slate-100 text-slate-700" data-action="export-pdf" title="PDF"><i class="fas fa-file-pdf"></i></button>
+          <button type="button" class="action-btn-micro bg-slate-100 text-slate-700" data-action="export-csv" title="CSV"><i class="fas fa-table"></i></button>
+          <div class="flex-1"></div>
+          <button type="button" class="px-2 py-1 rounded text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold transition-colors" data-action="toggle-focus-mode" title="Normal (F)"><i class="fas fa-expand mr-1"></i></button>
+        </div>
+      `;
+    }
+
+    if (state.actionsCollapsed) {
+      // Mode compact : bandeau horizontal avec boutons essentiels
+      return `
+        <div class="bg-white border border-slate-200 rounded-xl px-4 py-2.5 shadow-sm">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div class="flex items-center gap-2 flex-wrap">
+              <button type="button" class="action-btn-compact ${state.showStatistics ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'}" data-action="toggle-statistics" title="Statistiques (S)">
+                <i class="fas fa-chart-bar"></i>
+              </button>
+              <button type="button" class="action-btn-compact bg-slate-100 text-slate-700" data-action="regenerate" title="Régénérer">
+                <i class="fas fa-rotate-right"></i>
+              </button>
+              <div class="h-6 w-px bg-slate-300 mx-1"></div>
+              <button type="button" class="action-btn-compact bg-slate-100 text-slate-700" data-action="load-temp-groups" title="Charger">
+                <i class="fas fa-download"></i>
+              </button>
+              <button type="button" class="action-btn-compact bg-orange-500/90 hover:bg-orange-600 text-white" data-action="save-temp-groups" title="Sauver TEMP">
+                <i class="fas fa-save"></i>
+              </button>
+              <button type="button" id="toggle-interface-v4" class="action-btn-compact bg-purple-600 hover:bg-purple-700 text-white" title="Nouvelle Interface V4 (Beta)">
+                <i class="fas fa-sparkles"></i>
+              </button>
+              <button type="button" class="action-btn-compact bg-green-600 hover:bg-green-700 text-white" data-action="finalize-temp-groups" title="Finaliser">
+                <i class="fas fa-check-circle"></i>
+              </button>
+              <div class="h-6 w-px bg-slate-300 mx-1"></div>
+              <button type="button" class="action-btn-compact bg-slate-100 text-slate-700" data-action="export-pdf" title="Export PDF">
+                <i class="fas fa-file-pdf"></i>
+              </button>
+              <button type="button" class="action-btn-compact bg-slate-100 text-slate-700" data-action="export-csv" title="Export CSV">
+                <i class="fas fa-file-csv"></i>
+              </button>
+              <div class="h-6 w-px bg-slate-300 mx-1"></div>
+              <button type="button" class="action-btn-compact ${state.focusMode ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-700'}" data-action="toggle-focus-mode" title="Focus Mode (F)">
+                <i class="fas ${state.focusMode ? 'fa-compress' : 'fa-expand'}"></i>
+              </button>
+            </div>
+            <button type="button" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold transition-colors" data-action="toggle-actions" title="Développer les actions">
+              <i class="fas fa-chevron-down mr-1"></i>Développer
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    // Mode normal : cartes empilées
+    return `
+      <div class="space-y-3">
+        <div class="flex items-center justify-between">
+          <h4 class="text-sm font-semibold text-slate-700">Actions rapides</h4>
+          <button type="button" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold transition-colors" data-action="toggle-actions" title="Compacter les actions">
+            <i class="fas fa-chevron-up mr-1"></i>Réduire
+          </button>
+        </div>
+        <div class="grid gap-3 md:grid-cols-3">
+          <div class="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+            <p class="text-xs uppercase font-semibold text-slate-500 mb-2">Calcul & aperçu</p>
+            <div class="flex flex-wrap gap-2">
+              <button type="button" class="action-btn ${state.showStatistics ? 'bg-indigo-600 text-white' : 'bg-white border border-indigo-200 text-indigo-600'}" data-action="toggle-statistics">
+                <i class="fas fa-chart-bar"></i>
+                Statistiques
+              </button>
+              <button type="button" class="action-btn bg-white border border-slate-200 text-slate-700" data-action="regenerate">
+                <i class="fas fa-rotate-right"></i>
+                Régénérer
+              </button>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+            <p class="text-xs uppercase font-semibold text-slate-500 mb-2">Sauvegardes</p>
+            <div class="flex flex-wrap gap-2">
+              <button type="button" class="action-btn bg-white border border-slate-200 text-slate-700" data-action="load-temp-groups">
+                <i class="fas fa-download"></i>
+                Charger
+              </button>
+              <button type="button" class="action-btn bg-orange-500/90 hover:bg-orange-600 text-white" data-action="save-temp-groups">
+                <i class="fas fa-save"></i>
+                Sauver TEMP
+              </button>
+              <button type="button" id="toggle-interface-v4-full" class="action-btn bg-purple-600 hover:bg-purple-700 text-white">
+                <i class="fas fa-sparkles"></i>
+                Interface V4
+              </button>
+              <button type="button" class="action-btn bg-green-600 hover:bg-green-700 text-white" data-action="finalize-temp-groups">
+                <i class="fas fa-check-circle"></i>
+                Finaliser
+              </button>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+            <p class="text-xs uppercase font-semibold text-slate-500 mb-2">Exports</p>
+            <div class="flex flex-wrap gap-2">
+              <button type="button" class="action-btn bg-white border border-slate-200 text-slate-700" data-action="export-pdf">
+                <i class="fas fa-file-pdf"></i>
+                Export PDF
+              </button>
+              <button type="button" class="action-btn bg-white border border-slate-200 text-slate-700" data-action="export-csv">
+                <i class="fas fa-file-csv"></i>
+                Export CSV
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ✅ BLOCKER #3 FIX: Utiliser offset effectif per-regroupement
+  function renderGroupCard(group, index) {
+    const stats = calculateGroupStats(group);
+    const offsetStart = getEffectiveOffsetStart();
+    const groupNumber = offsetStart + index;
+
+    return `
+      <div class="group-card" data-group-index="${index}">
+        <div class="group-header ${GROUP_TYPES[state.groupType].color}">
+          <h4 class="group-title">${group.name || `Groupe ${groupNumber}`}</h4>
+          <span class="group-count">${group.students.length} élèves</span>
+        </div>
+
+        <div class="group-stats">
+          <div class="stat-item">
+            <i class="fas fa-venus-mars text-pink-600"></i>
+            <span>${stats.girls}F / ${stats.boys}M</span>
+          </div>
+          ${state.groupType === 'needs' ? `
+            <div class="stat-item">
+              <i class="fas fa-chart-line text-blue-600"></i>
+              <span>Moy: ${stats.avgScore}</span>
+            </div>
+          ` : ''}
+          ${state.groupType === 'language' ? `
+            <div class="stat-item">
+              <i class="fas fa-comments text-purple-600"></i>
+              <span>PART: ${stats.avgPart}</span>
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="group-students" data-group-id="${index}">
+          ${group.students.map(student => {
+            // ✅ FIX #2 : Utiliser compact si beaucoup d'élèves ou en focus mode
+            const useCompact = state.generatedGroups.length > 6 || group.students.length > 8 || state.focusMode;
+            return useCompact ? renderStudentCard_Compact(student) : renderStudentCard(student);
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderStudentCard(student) {
+    const nomAffiche = simplifierNomComplet(student.nom, student.prenom);
+
+    return `
+      <div class="student-card" data-student-id="${student.id}">
+        <div class="flex items-center gap-2 flex-1">
+          <span class="student-sexe ${student.sexe === 'F' ? 'sexe-f' : 'sexe-m'}">${student.sexe || '?'}</span>
+          <div class="flex-1 min-w-0">
+            <p class="student-name">${nomAffiche}</p>
+            <p class="student-meta">${student.classe || '—'}</p>
+          </div>
+        </div>
+        ${renderStudentScores(student)}
+        <i class="fas fa-grip-vertical text-slate-300 drag-handle"></i>
+      </div>
+    `;
+  }
+
+  // ✅ FIX #2 (UPDATED) : Carte élève compacte - FULL NAME + space available
+  function renderStudentCard_Compact(student) {
+    const nomAffiche = simplifierNomComplet(student.nom, student.prenom);
+    const classe = student.classe || '—';
+
+    let scoreHTML = '';
+    if (state.groupType === 'needs') {
+      const scoreF = student.scores?.F || 0;
+      const scoreM = student.scores?.M || 0;
+      const avg = ((scoreF + scoreM) / 2).toFixed(1);
+      scoreHTML = `
+        <div class="student-score-mini">
+          <span class="score-mini" title="Français">${scoreF}</span>
+          <span class="score-mini" title="Maths">${scoreM}</span>
+          <span class="score-mini avg" title="Moyenne">${avg}</span>
+        </div>
+      `;
+    } else if (state.groupType === 'language') {
+      const part = student.part || student.scores?.PART || 0;
+      scoreHTML = `
+        <div class="student-score-mini">
+          <span class="score-mini" title="Langue">${student.lv2 || '—'}</span>
+          <span class="score-mini" title="Participation">${part}</span>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="student-card-compact" data-student-id="${student.id}">
+        <span class="student-sexe-mini ${student.sexe === 'F' ? 'sexe-f' : 'sexe-m'}">${student.sexe || '?'}</span>
+        <span class="student-fullname">${nomAffiche}</span>
+        <span class="student-class-mini">${classe}</span>
+        ${scoreHTML}
+        <i class="fas fa-grip-vertical drag-handle-mini"></i>
+      </div>
+    `;
+  }
+
+  function renderStudentScores(student) {
+    if (state.groupType === 'needs') {
+      const scoreF = student.scores?.F || 0;
+      const scoreM = student.scores?.M || 0;
+      const avg = ((scoreF + scoreM) / 2).toFixed(1);
+      return `
+        <div class="student-scores">
+          <span class="score-badge">📚 ${scoreF}</span>
+          <span class="score-badge">📐 ${scoreM}</span>
+          <span class="score-badge avg">Moy ${avg}</span>
+        </div>
+      `;
+    }
+
+    if (state.groupType === 'language') {
+      const part = student.part || student.scores?.PART || 0;
+      return `
+        <div class="student-scores">
+          <span class="score-badge">${student.lv2 || '—'}</span>
+          <span class="score-badge">PART: ${part}</span>
+        </div>
+      `;
+    }
+
+    return '';
+  }
+
+  function calculateGroupStats(group) {
+    let girls = 0, boys = 0, totalScoreF = 0, totalScoreM = 0, totalPart = 0;
+
+    group.students.forEach(student => {
+      if (student.sexe === 'F') girls++;
+      if (student.sexe === 'M') boys++;
+      totalScoreF += student.scores?.F || 2.5;
+      totalScoreM += student.scores?.M || 2.5;
+      totalPart += student.part || student.scores?.PART || 0;
+    });
+
+    const count = group.students.length || 1;
+
+    return {
+      girls,
+      boys,
+      avgScore: ((totalScoreF + totalScoreM) / (count * 2)).toFixed(1),
+      avgPart: (totalPart / count).toFixed(1)
+    };
+  }
+
+  function getTotalStudents() {
+    return state.generatedGroups.reduce((sum, group) => sum + group.students.length, 0);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  PANNEAU STATISTIQUES
+  // ═══════════════════════════════════════════════════════════════
+
+  function renderStatisticsPanel() {
+    return `
+      <div class="statistics-panel">
+        <div class="bg-white rounded-2xl border-2 border-slate-200 overflow-hidden sticky top-4">
+          <div class="bg-gradient-to-br from-indigo-600 to-purple-600 text-white p-4 flex items-center justify-between cursor-pointer" data-action="toggle-stats-collapse">
+            <div>
+              <h4 class="font-bold text-lg flex items-center gap-2">
+                <i class="fas fa-chart-pie"></i>
+                Distribution des scores
+              </h4>
+              <p class="text-sm opacity-90 mt-1">Analyse par groupe</p>
+            </div>
+            <button type="button" class="text-white/80 hover:text-white transition-colors p-2" title="${state.statisticsCollapsed ? 'Développer' : 'Réduire'}">
+              <i class="fas fa-chevron-${state.statisticsCollapsed ? 'down' : 'up'} text-xl"></i>
+            </button>
+          </div>
+
+          ${!state.statisticsCollapsed ? `
+            <div class="max-h-[calc(100vh-240px)] overflow-y-auto p-4">
+              ${state.generatedGroups.map((group, index) => renderGroupStatistics(group, index)).join('')}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderGroupStatistics(group, index) {
+    const stats = calculateGroupStats(group);
+    const scoreDistribution = calculateScoreDistribution(group);
+
+    return `
+      <div class="mb-4 last:mb-0">
+        <div class="bg-slate-50 rounded-xl p-3 border border-slate-200">
+          <div class="flex items-center justify-between mb-3">
+            <h5 class="font-semibold text-slate-900">${group.name || `Groupe ${index + 1}`}</h5>
+            <span class="text-xs bg-slate-200 text-slate-700 px-2 py-1 rounded-full font-medium">${group.students.length}</span>
+          </div>
+
+          <div class="mb-3 pb-3 border-b border-slate-200">
+            <div class="flex items-center justify-between text-sm">
+              <span class="text-slate-600">Parité</span>
+              <span class="font-semibold text-slate-900">${stats.girls}F / ${stats.boys}M</span>
+            </div>
+          </div>
+
+          ${state.groupType === 'needs' ? `
+            <div class="space-y-2">
+              <div class="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-2">Distribution Français</div>
+              ${renderScoreDistributionBars(scoreDistribution.F, 'F')}
+
+              <div class="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-2 mt-3">Distribution Maths</div>
+              ${renderScoreDistributionBars(scoreDistribution.M, 'M')}
+
+              <div class="mt-3 pt-3 border-t border-slate-200">
+                <div class="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-2">Critères</div>
+                ${renderBehavioralCriteria(group)}
+              </div>
+            </div>
+          ` : ''}
+
+          ${state.groupType === 'language' ? `
+            <div class="space-y-2">
+              <div class="flex items-center justify-between text-sm">
+                <span class="text-slate-600">Participation moy.</span>
+                <span class="font-semibold text-purple-700">${stats.avgPart}</span>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  function calculateScoreDistribution(group) {
+    const distribution = {
+      F: { 1: 0, 2: 0, 3: 0, 4: 0 },
+      M: { 1: 0, 2: 0, 3: 0, 4: 0 }
+    };
+
+    group.students.forEach(student => {
+      const scoreF = Math.round(student.scores?.F || 2.5);
+      const scoreM = Math.round(student.scores?.M || 2.5);
+
+      // Clamp scores entre 1 et 4
+      const clampedF = Math.max(1, Math.min(4, scoreF));
+      const clampedM = Math.max(1, Math.min(4, scoreM));
+
+      distribution.F[clampedF] = (distribution.F[clampedF] || 0) + 1;
+      distribution.M[clampedM] = (distribution.M[clampedM] || 0) + 1;
+    });
+
+    return distribution;
+  }
+
+  function renderScoreDistributionBars(distribution, subject) {
+    const total = Object.values(distribution).reduce((a, b) => a + b, 0) || 1;
+    const colors = {
+      1: 'bg-red-500',
+      2: 'bg-yellow-500',
+      3: 'bg-green-400',
+      4: 'bg-green-700'
+    };
+
+    return `
+      <div class="space-y-1.5">
+        ${[1, 2, 3, 4].map(score => {
+          const count = distribution[score] || 0;
+          const percentage = Math.round((count / total) * 100);
+
+          return `
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-medium text-slate-600 w-8">${subject === 'F' ? '📚' : '📐'} ${score}</span>
+              <div class="flex-1 bg-slate-200 rounded-full h-5 overflow-hidden">
+                <div class="${colors[score]} h-full flex items-center justify-end pr-2 transition-all" style="width: ${percentage}%">
+                  ${count > 0 ? `<span class="text-xs font-bold text-white">${count}</span>` : ''}
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  function renderBehavioralCriteria(group) {
+    let totalCOM = 0, totalTRA = 0, totalPART = 0, totalABS = 0;
+    const count = group.students.length || 1;
+
+    group.students.forEach(student => {
+      totalCOM += student.com || 0;
+      totalTRA += student.tra || 0;
+      totalPART += student.part || 0;
+      totalABS += student.abs || 0;
+    });
+
+    const avgCOM = (totalCOM / count).toFixed(1);
+    const avgTRA = (totalTRA / count).toFixed(1);
+    const avgPART = (totalPART / count).toFixed(1);
+    const avgABS = (totalABS / count).toFixed(1);
+
+    return `
+      <div class="space-y-1.5 text-xs">
+        <div class="flex items-center justify-between">
+          <span class="text-slate-600">COM (Comportement)</span>
+          <span class="font-semibold text-blue-700">${avgCOM}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-slate-600">TRA (Travail)</span>
+          <span class="font-semibold text-indigo-700">${avgTRA}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-slate-600">PART (Participation)</span>
+          <span class="font-semibold text-purple-700">${avgPART}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-slate-600">ABS (Absences)</span>
+          <span class="font-semibold text-pink-700">${avgABS}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function toggleStatistics() {
+    state.showStatistics = !state.showStatistics;
+    updateUI();
+  }
+
+  function toggleHeaderVisibility() {
+    state.headerHidden = !state.headerHidden;
+    state.headerHiddenPreference = state.headerHidden; // Persister la préférence
+
+    // Animation fluide
+    const header = qs('header', state.modal);
+    if (header) {
+      if (state.headerHidden) {
+        header.classList.add('hidden');
+      } else {
+        header.classList.remove('hidden');
+      }
+    }
+
+    showToast(
+      `En-tête ${state.headerHidden ? 'masqué' : 'affiché'} (Raccourci: H)`,
+      'info',
+      2000
+    );
+    updateUI();
+  }
+
+  function toggleFocusMode() {
+    if (state.currentStep !== 5) return;
+    state.focusMode = !state.focusMode;
+    showToast(
+      `Mode ${state.focusMode ? 'focus' : 'normal'} activé (Raccourci: F)`,
+      'info',
+      2000
+    );
+    updateUI();
+  }
+
+  function toggleActionsCollapse() {
+    state.actionsCollapsed = !state.actionsCollapsed;
+    updateUI();
+  }
+
+  function toggleStatsCollapse() {
+    state.statisticsCollapsed = !state.statisticsCollapsed;
+    updateUI();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  NAVIGATION & EVENT LISTENERS
+  // ═══════════════════════════════════════════════════════════════
+
+  function attachEventListeners() {
+    if (!state.modal) return;
+
+    // Actions principales
+    const primaryBtn = qs('[data-action="primary"]', state.modal);
+    const secondaryBtn = qs('[data-action="secondary"]', state.modal);
+    const closeBtn = qs('[data-action="close"]', state.modal);
+
+    if (primaryBtn) primaryBtn.onclick = handlePrimaryAction;
+    if (secondaryBtn) secondaryBtn.onclick = handleSecondaryAction;
+    if (closeBtn) closeBtn.onclick = closeModal;
+
+    // Étape 1 : Sélection du type
+    qsa('[data-type]', state.modal).forEach(btn => {
+      btn.onclick = () => {
+        if (!btn.disabled) {
+          selectGroupType(btn.dataset.type);
+        }
+      };
+    });
+
+    // Étape 2 : Sélection des classes et regroupements
+    qsa('.class-checkbox', state.modal).forEach(checkbox => {
+      checkbox.onchange = handlePendingClassSelection;
+    });
+
+    const selectAllBtn = qs('[data-action="select-all-classes"]', state.modal);
+    const deselectAllBtn = qs('[data-action="deselect-all-classes"]', state.modal);
+    const retryBtn = qs('[data-action="retry-load"]', state.modal);
+    const createRegBtn = qs('[data-action="create-regroupement"]', state.modal);
+    const incrNewPassBtn = qs('[data-action="increment-new-pass"]', state.modal);
+    const decrNewPassBtn = qs('[data-action="decrement-new-pass"]', state.modal);
+    const newLabelInput = qs('[data-input="new-pass-label"]', state.modal);
+
+    if (selectAllBtn) selectAllBtn.onclick = selectAllClasses;
+    if (deselectAllBtn) deselectAllBtn.onclick = deselectAllClasses;
+    if (retryBtn) retryBtn.onclick = loadAvailableClasses;
+    if (createRegBtn) createRegBtn.onclick = createRegroupementFromSelection;
+    if (incrNewPassBtn) incrNewPassBtn.onclick = () => updateNewRegroupementCount(1);
+    if (decrNewPassBtn) decrNewPassBtn.onclick = () => updateNewRegroupementCount(-1);
+    if (newLabelInput) newLabelInput.oninput = (e) => {
+      state.newRegroupementLabel = e.target.value;
+    };
+
+    qsa('[data-action="delete-regroupement"]', state.modal).forEach(btn => {
+      btn.onclick = () => deleteRegroupement(btn.dataset.regroupementId);
+    });
+
+    qsa('[data-action="activate-regroupement"]', state.modal).forEach(btn => {
+      btn.onclick = () => activateRegroupement(btn.dataset.regroupementId);
+    });
+
+    // Étape 3 : Configuration
+    const numGroupsRange = qs('[data-input="numGroups"]', state.modal);
+    if (numGroupsRange) {
+      numGroupsRange.oninput = (e) => {
+        state.numGroups = parseInt(e.target.value);
+        const display = qs('[data-display="numGroups"]', state.modal);
+        if (display) display.textContent = state.numGroups;
+        updateActiveRegroupementGroupCount(state.numGroups);
+      };
+    }
+
+    const incrBtn = qs('[data-action="increment-groups"]', state.modal);
+    const decrBtn = qs('[data-action="decrement-groups"]', state.modal);
+
+    if (incrBtn) incrBtn.onclick = () => changeNumGroups(1);
+    if (decrBtn) decrBtn.onclick = () => changeNumGroups(-1);
+
+    qsa('input[name="subject"]', state.modal).forEach(radio => {
+      radio.onchange = (e) => {
+        state.selectedSubject = e.target.value;
+        updateUI();
+      };
+    });
+
+    qsa('input[name="distribution"]', state.modal).forEach(radio => {
+      radio.onchange = (e) => {
+        state.distributionType = e.target.value;
+        updateUI();
+      };
+    });
+
+    qsa('input[name="language"]', state.modal).forEach(radio => {
+      radio.onchange = (e) => {
+        state.selectedLanguage = e.target.value;
+        updateUI();
+      };
+    });
+
+    // Étape 5 : Actions sur les groupes
+    const toggleStatsBtn = qs('[data-action="toggle-statistics"]', state.modal);
+    const regenerateBtn = qs('[data-action="regenerate"]', state.modal);
+    const saveTempBtn = qs('[data-action="save-temp-groups"]', state.modal);
+    const loadTempBtn = qs('[data-action="load-temp-groups"]', state.modal);
+    const finalizeTempBtn = qs('[data-action="finalize-temp-groups"]', state.modal);
+    const exportPdfBtn = qs('[data-action="export-pdf"]', state.modal);
+    const exportCsvBtn = qs('[data-action="export-csv"]', state.modal);
+
+    if (toggleStatsBtn) toggleStatsBtn.onclick = toggleStatistics;
+    if (regenerateBtn) regenerateBtn.onclick = generateGroups;
+    if (saveTempBtn) saveTempBtn.onclick = saveTempGroupsUI;
+    if (loadTempBtn) loadTempBtn.onclick = loadTempGroupsUI;
+    if (finalizeTempBtn) finalizeTempBtn.onclick = finalizeTempGroupsUI;
+    if (exportPdfBtn) exportPdfBtn.onclick = exportToPDF;
+    if (exportCsvBtn) exportCsvBtn.onclick = exportToCSV;
+
+    // Boutons de bascule UI (étape 5)
+    const toggleActionsBtn = qs('[data-action="toggle-actions"]', state.modal);
+    const toggleStatsCollapseBtn = qs('[data-action="toggle-stats-collapse"]', state.modal);
+
+    if (toggleActionsBtn) toggleActionsBtn.onclick = toggleActionsCollapse;
+    if (toggleStatsCollapseBtn) toggleStatsCollapseBtn.onclick = toggleStatsCollapse;
+
+    // Bouton pour masquer/afficher complètement le header (titre + stepper)
+    qsa('[data-action="toggle-header-visibility"]', state.modal).forEach(btn => {
+      btn.onclick = toggleHeaderVisibility;
+    });
+
+    // Toggle focus mode (Phase 5)
+    qsa('[data-action="toggle-focus-mode"]', state.modal).forEach(btn => {
+      btn.onclick = toggleFocusMode;
+    });
+
+    qsa('[data-action="set-persist-mode"]', state.modal).forEach(btn => {
+      btn.onclick = () => setPersistMode(btn.dataset.value);
+    });
+
+    const offsetInput = qs('[data-input="offset-start"]', state.modal);
+    if (offsetInput) {
+      offsetInput.oninput = handleOffsetInput;
+    }
+
+    // Initialiser Drag & Drop si on est à l'étape 5
+    if (state.currentStep === 5 && state.generatedGroups.length > 0) {
+      initializeDragAndDrop();
+    }
+
+    // ═══ RACCOURCIS CLAVIER (Phase 5 uniquement) ═══
+    if (state.keyboardShortcutsEnabled) {
+      documentRef.addEventListener('keydown', (e) => {
+        // Ignorer si on est dans un input/textarea
+        const activeEl = documentRef.activeElement;
+        if (activeEl.matches('input, textarea, [contenteditable]')) {
+          return;
+        }
+
+        // H : Masquer/afficher l'en-tête (Phase 5)
+        if ((e.key === 'h' || e.key === 'H') && state.currentStep === 5) {
+          e.preventDefault();
+          toggleHeaderVisibility();
+        }
+
+        // F : Toggle focus mode (Phase 5)
+        if ((e.key === 'f' || e.key === 'F') && state.currentStep === 5) {
+          e.preventDefault();
+          toggleFocusMode();
+        }
+
+        // S : Toggle statistiques (Phase 5)
+        if ((e.key === 's' || e.key === 'S') && state.currentStep === 5) {
+          e.preventDefault();
+          toggleStatistics();
+          showToast('Statistiques ' + (state.showStatistics ? 'affichées' : 'masquées') + ' (S)', 'info', 1500);
+        }
+      });
+    }
+  }
+
+  function handlePrimaryAction() {
+    if (state.currentStep === 1) {
+      if (!state.groupType) {
+        showToast('Veuillez sélectionner un type de groupes', 'warning');
+        return;
+      }
+      nextStep();
+    } else if (state.currentStep === 2) {
+      if (state.selectedClasses.length === 0) {
+        showToast('Veuillez sélectionner au moins une classe', 'warning');
+        return;
+      }
+      nextStep();
+    } else if (state.currentStep === 3) {
+      // Validation spécifique pour les groupes LV2
+      if (state.groupType === 'language') {
+        const selectedLangInfo = state.availableLanguages.find(l => l.lang === state.selectedLanguage);
+        if (!selectedLangInfo || selectedLangInfo.count === 0) {
+          showToast(`⚠️ Aucun élève trouvé pour la langue ${state.selectedLanguage}`, 'warning');
+          return;
+        }
+      }
+      nextStep();
+    } else if (state.currentStep === 4) {
+      generateGroups();
+    } else if (state.currentStep === 5) {
+      closeModal();
+    }
+  }
+
+  function handleSecondaryAction() {
+    if (state.currentStep === 1) {
+      closeModal();
+    } else if (state.currentStep === 5) {
+      resetToStep1();
+    } else {
+      previousStep();
+    }
+  }
+
+  function nextStep() {
+    if (state.currentStep < state.totalSteps) {
+      state.currentStep++;
+
+      // Charger les classes si on arrive à l'étape 2
+      if (state.currentStep === 2 && state.availableClasses.length === 0) {
+        loadAvailableClasses();
+      }
+
+      // Détecter les langues disponibles si on arrive à l'étape 3 en mode LV2
+      if (state.currentStep === 3 && state.groupType === 'language') {
+        detectAvailableLanguages();
+      }
+
+      updateUI();
+    }
+  }
+
+  function previousStep() {
+    if (state.currentStep > 1) {
+      state.currentStep--;
+      updateUI();
+    }
+  }
+
+  function resetToStep1() {
+    state.currentStep = 1;
+    state.groupType = null;
+    state.selectedClasses = [];
+    state.availableClasses = [];
+    state.pendingClasses = [];
+    state.regroupements = [];
+    state.activeRegroupementId = null;
+    state.groupsByRegroupement = {};
+    state.persistMode = 'replace';
+    state.tempOffsetStart = 1;
+    state.lastTempRange = null;
+    state.lastFinalRange = null;
+    state.generatedGroups = [];
+    state.continuationData = null;
+    state.continuationError = null;
+    state.continuationLoading = false;
+    updateUI();
+  }
+
+  function selectGroupType(type) {
+    state.groupType = type;
+    state.regroupements = [];
+    state.pendingClasses = [];
+    state.groupsByRegroupement = {};
+    state.activeRegroupementId = null;
+    state.selectedClasses = [];
+    state.numGroups = 3;
+    state.persistMode = 'replace';
+    state.tempOffsetStart = 1;
+    state.lastTempRange = null;
+    state.lastFinalRange = null;
+    state.continuationData = null;
+    state.continuationError = null;
+    state.continuationLoading = false;
+    state.newRegroupementLabel = '';
+    state.newRegroupementGroupCount = 3;
+    updateUI();
+    fetchContinuationStatus();
+    // Auto-avancer après sélection
+    setTimeout(() => nextStep(), 300);
+  }
+
+  function handlePendingClassSelection(e) {
+    const classe = e.target.value;
+    const checked = e.target.checked;
+    const current = new Set(state.pendingClasses);
+
+    if (checked) {
+      current.add(classe);
+    } else {
+      current.delete(classe);
+    }
+
+    state.pendingClasses = Array.from(current);
+    updateUI();
+  }
+
+  function selectAllClasses() {
+    state.pendingClasses = [...state.availableClasses];
+    updateUI();
+  }
+
+  function deselectAllClasses() {
+    state.pendingClasses = [];
+    updateUI();
+  }
+
+  function changeNumGroups(delta) {
+    state.numGroups = Math.max(1, Math.min(10, state.numGroups + delta));
+    updateActiveRegroupementGroupCount(state.numGroups);
+    updateUI();
+  }
+
+  function updateUI() {
+    if (!state.modal) return;
+
+    // Re-render du contenu
+    const container = qs('[data-step-container]', state.modal);
+    if (container) {
+      container.innerHTML = renderStepContent();
+    }
+
+    // Update stepper
+    qsa('.stepper-step', state.modal).forEach((step, index) => {
+      const stepNum = index + 1;
+      step.classList.toggle('active', stepNum <= state.currentStep);
+      step.classList.toggle('current', stepNum === state.currentStep);
+    });
+
+    // Update footer
+    const footerInfo = qs('[data-footer-info]', state.modal);
+    const primaryBtn = qs('[data-action="primary"]', state.modal);
+    const secondaryBtn = qs('[data-action="secondary"]', state.modal);
+
+    if (footerInfo) footerInfo.innerHTML = getFooterInfo();
+    if (primaryBtn) primaryBtn.textContent = getPrimaryButtonLabel();
+    if (secondaryBtn) secondaryBtn.textContent = getSecondaryButtonLabel();
+
+    // Update header gradient
+    const header = qs('header', state.modal);
+    if (header && state.groupType) {
+      const iconWrapper = qs('.h-14', header);
+      if (iconWrapper) {
+        iconWrapper.className = `h-14 w-14 rounded-2xl bg-gradient-to-br ${GROUP_TYPES[state.groupType].color} flex items-center justify-center text-3xl shadow-lg`;
+        iconWrapper.textContent = GROUP_TYPES[state.groupType].icon;
+      }
+    }
+
+    // Re-attach event listeners
+    attachEventListeners();
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  CHARGEMENT DES DONNÉES
+  // ═══════════════════════════════════════════════════════════════
+
+  function loadAvailableClasses() {
+    console.log('📡 [GroupsModule] Chargement des classes (DOM + backend)...');
+
+    state.isLoading = true;
+    state.loadError = null;
+
+    // 1. Snapshot local direct depuis le board visible
+    const domSnapshot = snapshotClassesFromDOMForGroups(); // { "6°2": {eleves:[...]}, ... }
+    const domClasses = Object.keys(domSnapshot);
+    console.log('[GroupsModule] Classes détectées dans le DOM :', domClasses);
+
+    // Cas offline / pas d'Apps Script → on vit uniquement avec le DOM
+    if (!google?.script?.run) {
+      console.warn('[GroupsModule] google.script.run indisponible → fallback DOM ONLY');
+      state.isLoading = false;
+      state.classKeyMap = {};
+      state.classesData = domSnapshot;           // on stocke DIRECT
+      state.availableClasses = domClasses.slice();
+      if (!state.selectedClasses.length) {
+        state.selectedClasses = domClasses.slice();
+      }
+
+      // petit log récap
+      let total = 0;
+      state.availableClasses.forEach(c => {
+        total += (state.classesData[c]?.eleves || []).length;
+      });
+      console.log(`[GroupsModule] Total d'élèves (DOM only): ${total}`);
+
+      updateUI();
+      showToast(`✅ ${domClasses.length} classe(s) détectée(s) / ${total} élève(s)`, 'success');
+      return;
+    }
+
+    // 2. Sinon, on tente aussi le backend pour compléter les infos
+    google.script.run
+      .withSuccessHandler(result => {
+        console.log('[GroupsModule] Réponse getClassesData:', result);
+        state.isLoading = false;
+
+        if (!result || !result.data) {
+          console.warn('[GroupsModule] Backend vide ou invalide → on reste 100% DOM');
+          finalizeUsingMergedData(domClasses, domSnapshot, {}, {});
+          return;
+        }
+
+        const backendData = result.data;                 // ex: { "6E2FIN": {eleves:[...]}, ... }
+        const backendKeys = Object.keys(backendData);
+        console.log('[GroupsModule] Clés brutes renvoyées par getClassesData:', backendKeys);
+
+        // On va essayer de faire correspondre chaque classe affichée ("6°2")
+        // avec une clé backend ("6E2FIN") en utilisant canonicalClass().
+        const mapping = {};
+        const mergedData = {};
+
+        domClasses.forEach(displayName => {
+          const domCanon = canonicalClass(displayName);
+          console.log(`   🔎 Tentative correspondance pour "${displayName}" (canon: "${domCanon}")`);
+
+          let winnerKey = null;
+          for (const k of backendKeys) {
+            const kCanon = canonicalClass(k);
+            if (
+              kCanon === domCanon ||
+              kCanon.startsWith(domCanon) ||
+              domCanon.startsWith(kCanon)
+            ) {
+              winnerKey = k;
+              break;
+            }
+          }
+
+          if (winnerKey) {
+            console.log(`   ✅ Match backend "${winnerKey}" pour "${displayName}"`);
+            mapping[displayName] = winnerKey;
+
+            // priorité backend si présent,
+            // sinon on retombe sur le DOM (par cohérence visuelle)
+            mergedData[displayName] = backendData[winnerKey] && backendData[winnerKey].eleves
+              ? { eleves: backendData[winnerKey].eleves.slice() }
+              : (domSnapshot[displayName] || { eleves: [] });
+
+          } else {
+            console.warn(`   ⚠️ Pas de correspondance backend pour "${displayName}" → on prend le DOM en source`);
+            mapping[displayName] = displayName;
+            mergedData[displayName] = domSnapshot[displayName] || { eleves: [] };
+          }
+        });
+
+        finalizeUsingMergedData(domClasses, mergedData, mapping, backendData);
+      })
+      .withFailureHandler(error => {
+        state.isLoading = false;
+        console.error('[GroupsModule] Erreur getClassesData:', error);
+        showToast('❌ Erreur backend, utilisation des données visibles à l\'écran', 'warning');
+
+        // backend KO → full DOM
+        finalizeUsingMergedData(domClasses, domSnapshot, {}, {});
+      })
+      .loadFINSheetsWithScores(); // 🔑 Charge les onglets FIN avec SCORE F et SCORE M
+  }
+
+  // Helper interne pour factoriser la fin du chargement
+  function finalizeUsingMergedData(domClasses, mergedData, mapping, backendData) {
+    state.classKeyMap = mapping || {};
+    state.classesData = mergedData || {};
+    state.availableClasses = domClasses.slice();
+
+    console.log('[DEBUG loadAvailableClasses] Avant auto-sélection:');
+    console.log('   selectedClasses:', state.selectedClasses);
+    console.log('   availableClasses:', state.availableClasses);
+
+    // Auto-sélection si rien n'est encore choisi
+    if (!state.selectedClasses || state.selectedClasses.length === 0) {
+      console.log('[DEBUG loadAvailableClasses] Auto-sélection activée (aucune classe préalablement sélectionnée)');
+      state.selectedClasses = state.availableClasses.slice();
+      console.log('   selectedClasses après auto-sélection:', state.selectedClasses);
+
+      // 🟢 FIX #5 : Toast de confirmation de l'auto-sélection
+      showToast(`✅ ${state.selectedClasses.length} classes sélectionnées automatiquement`, 'info', 2000);
+    }
+
+    if (!Array.isArray(state.pendingClasses) || state.pendingClasses.length === 0) {
+      state.pendingClasses = state.selectedClasses.length
+        ? state.selectedClasses.slice()
+        : state.availableClasses.slice();
+    }
+
+    // Compte combien d'élèves on a vraiment
+    let totalStudents = 0;
+    state.availableClasses.forEach(name => {
+      const bucket = state.classesData[name];
+      if (bucket && Array.isArray(bucket.eleves)) {
+        totalStudents += bucket.eleves.length;
+      }
+    });
+
+    console.log('[GroupsModule] Mapping affichage→backend:', state.classKeyMap);
+    console.log('[GroupsModule] Liste finale des classes pédagogiques:', state.availableClasses);
+    console.log('[GroupsModule] selectedClasses au fin de loadAvailableClasses:', state.selectedClasses);
+    console.log(`[GroupsModule] Total d'élèves disponibles après fusion DOM/backend: ${totalStudents}`);
+
+    updateUI();
+
+    if (state.availableClasses.length === 0) {
+      state.loadError = 'Aucune classe détectée';
+      showToast('⚠️ Aucune classe détectée', 'warning');
+    } else {
+      showToast(
+        `✅ ${state.availableClasses.length} classe(s) détectée(s) / ${totalStudents} élève(s)`,
+        'success'
+      );
+    }
+  }
+
+  function fetchContinuationStatus() {
+    if (!state.groupType) {
+      state.continuationData = null;
+      state.continuationError = null;
+      state.continuationLoading = false;
+      return;
+    }
+
+    if (!google?.script?.run) {
+      state.continuationData = null;
+      state.continuationError = null;
+      state.continuationLoading = false;
+      return;
+    }
+
+    state.continuationLoading = true;
+    state.continuationError = null;
+
+    google.script.run
+      .withSuccessHandler(result => {
+        state.continuationLoading = false;
+
+        if (result?.success) {
+          const metadata = result.metadata || {};
+          state.continuationData = { ...state.continuationData, ...metadata };
+
+          if (!state.lastTempRange && metadata.lastTempRange) {
+            state.lastTempRange = metadata.lastTempRange;
+          }
+          if (!state.lastFinalRange && metadata.lastFinalRange) {
+            state.lastFinalRange = metadata.lastFinalRange;
+          }
+
+          const suggestion = Number(metadata.suggestedNextIndex);
+          if (state.persistMode === 'continue' && Number.isFinite(suggestion) && suggestion > 0) {
+            state.tempOffsetStart = suggestion;
+            const regroupement = getActiveRegroupement();
+            if (regroupement) {
+              if (!regroupement.offsetStart || regroupement.persistMode === 'continue') {
+                regroupement.offsetStart = suggestion;
+              }
+            }
+            applyOffsetToGeneratedGroups();
+          }
+        } else {
+          state.continuationError = result?.error || 'Statut de continuation indisponible';
+        }
+
+        if (state.modal) {
+          updateUI();
+        }
+      })
+      .withFailureHandler(error => {
+        state.continuationLoading = false;
+        state.continuationError = error?.message || String(error);
+        if (state.modal) {
+          updateUI();
+        }
+      })
+      .getGroupContinuationStatus(state.groupType);
+  }
+
+  function loadStudentsFromClasses() {
+    console.log('[GroupsModule] ════════════════════════════════════════════');
+    console.log('[GroupsModule] Chargement des élèves via classesData fusionnée...');
+    console.log('[GroupsModule] 🔍 DEBUG - selectedClasses:', state.selectedClasses);
+    console.log('[GroupsModule] 🔍 DEBUG - selectedClasses.length:', state.selectedClasses.length);
+    console.log('[GroupsModule] 🔍 DEBUG - Clés disponibles dans classesData:', Object.keys(state.classesData));
+    console.log('[GroupsModule] 🔍 DEBUG - availableClasses:', state.availableClasses);
+
+    if (!state.classesData || Object.keys(state.classesData).length === 0) {
+      showToast('❌ Données des classes non chargées', 'error');
+      return Promise.reject('No classes data');
+    }
+
+    return new Promise((resolve, reject) => {
+      try {
+        const students = [];
+
+        (state.selectedClasses || []).forEach(displayName => {
+          const bucket = state.classesData[displayName];
+
+          if (!bucket || !Array.isArray(bucket.eleves)) {
+            console.warn(`[GroupsModule] ❌ Pas de bucket valide pour "${displayName}"`);
+            return;
+          }
+
+          console.log(`[GroupsModule] ✅ "${displayName}" : ${bucket.eleves.length} élève(s)`);
+
+          bucket.eleves.forEach((e, idx) => {
+            if (!e) return;
+
+            // 1. Récup FR / MATH envoyés par Apps Script
+            //    -> e.scoreF et e.scoreM (ex: 11.5 / 8.0)
+            const fScore = (typeof e.scoreF === 'number') ? e.scoreF
+                         : (typeof e.scores?.F === 'number') ? e.scores.F
+                         : null;
+
+            const mScore = (typeof e.scoreM === 'number') ? e.scoreM
+                         : (typeof e.scores?.M === 'number') ? e.scores.M
+                         : null;
+
+            // 2. Récup comportement / travail / etc.
+            const comVal  = (e.com  ?? e.scores?.COM  ?? 0);
+            const traVal  = (e.tra  ?? e.scores?.TRA  ?? 0);
+            const partVal = (e.part ?? e.scores?.PART ?? 0);
+            const absVal  = (e.abs  ?? e.scores?.ABS  ?? 0);
+
+            // 3. Construire l'élève normalisé
+            const normalized = {
+              // Identité
+              id:     e.id || e.ID || e.identifiant || `${displayName}_${idx}`,
+              nom:    e.nom || e.NOM || e.lastName || '',
+              prenom: e.prenom || e.PRENOM || e.firstName || '',
+              sexe:   e.sexe || e.SEXE || e.sex || '',
+              classe: displayName,
+
+              // Options
+              lv2: e.lv2 || e.LV2 || null,
+              opt: e.opt || e.OPT || null,
+
+              // Scores bruts regroupés
+              scores: {
+                // ce bloc est ce que les autres fonctions lisent
+                F:    (typeof fScore === 'number' ? fScore : null),   // Français attendu par computeGroupStats()
+                M:    (typeof mScore === 'number' ? mScore : null),   // Maths attendu par computeGroupStats()
+                COM:  comVal,
+                TRA:  traVal,
+                PART: partVal,
+                ABS:  absVal
+              },
+
+              // Duplication top-level pour l'UI comportement
+              com:  comVal,
+              tra:  traVal,
+              part: partVal,
+              abs:  absVal,
+
+              // Duplication top-level pour debug ou affichage direct si besoin
+              scoreF: fScore,
+              scoreM: mScore
+            };
+
+            students.push(normalized);
+          });
+        });
+
+        // 🟢 FIX CRITIQUE : Détecter les langues AVANT de filtrer
+        // Sans cela, selectedLanguage reste null et le filtrage LV2 ne s'exécute pas
+        if (state.groupType === 'language') {
+          detectAvailableLanguages();
+          console.log(`[GroupsModule] 🗣️ Détection LV2 complétée. Language sélectionné: ${state.selectedLanguage}`);
+        }
+
+        // 🔴 FILTRAGE LV2 : Si on est en mode 'language', ne garder que les élèves de la langue sélectionnée
+        let filteredStudents = students;
+        if (state.groupType === 'language' && state.selectedLanguage) {
+          const beforeFilter = students.length;
+          filteredStudents = students.filter(s => {
+            const studentLV2 = normalizeLanguageCode(s.lv2 || s.LV2 || '');
+            return studentLV2 === state.selectedLanguage;
+          });
+          console.log(`[GroupsModule] 🔍 Filtrage LV2 "${state.selectedLanguage}": ${beforeFilter} élèves → ${filteredStudents.length} élèves`);
+          
+          if (filteredStudents.length === 0) {
+            console.warn(`[GroupsModule] ⚠️ Aucun élève trouvé pour la langue "${state.selectedLanguage}"`);
+            showToast(`⚠️ Aucun élève trouvé pour la langue ${state.selectedLanguage}`, 'warning');
+          }
+        }
+
+        state.students = filteredStudents;
+        state.studentsById = new Map(filteredStudents.map(s => [s.id, s]));
+
+        console.log(`[GroupsModule] 📊 Total d'élèves chargés: ${filteredStudents.length}`);
+        if (filteredStudents.length > 0) {
+          console.log('[GroupsModule] 🔍 DEBUG - Premier élève normalisé:', state.students[0]);
+        }
+
+        resolve(filteredStudents);
+      } catch (error) {
+        console.error('[GroupsModule] Erreur loadStudentsFromClasses:', error);
+        showToast('❌ Erreur lors du chargement des élèves', 'error');
+        reject(error);
+      }
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  DÉTECTION DES LANGUES DISPONIBLES
+  // ═══════════════════════════════════════════════════════════════
+
+  // 🟢 FIX #3 : Normaliser les codes de langue
+  function normalizeLanguageCode(langCode) {
+    if (!langCode) return 'AUTRE';
+    const normalized = (langCode || '').toString().trim().toUpperCase();
+    // Mapping des langues connues
+    const knownLangs = {
+      'ESP': 'ESP',
+      'ESPAGNOL': 'ESP',
+      'ITA': 'ITA',
+      'ITALIEN': 'ITA',
+      'ALL': 'ALL',
+      'ALLEMAND': 'ALL'
+    };
+    return knownLangs[normalized] || 'AUTRE';
+  }
+
+  function detectAvailableLanguages() {
+    if (!state.classesData || Object.keys(state.classesData).length === 0) {
+      state.availableLanguages = [];
+      state.selectedLanguage = null;
+      return;
+    }
+
+    // 🟢 FIX #3 : Cache - si les classes sélectionnées n'ont pas changé, réutiliser le cache
+    const currentKey = (state.selectedClasses || []).sort().join('|');
+    if (state.cachedLanguageDetectionKey === currentKey && state.availableLanguages.length > 0) {
+      console.log('[GroupsModule] 🗣️ Langues détectées (FROM CACHE):', state.availableLanguages, 'Sélection:', state.selectedLanguage);
+      return; // ← Retour anticipé : données du cache
+    }
+
+    console.log('[GroupsModule] 🗣️ NOUVELLE DÉTECTION LV2 (classes changées ou première fois)');
+
+    const languageCounts = {};
+
+    // 🟢 FIX #4 : Parcourir toutes les classes sélectionnées (pas juste du regroupement courant)
+    (state.selectedClasses || []).forEach(displayName => {
+      const bucket = state.classesData[displayName];
+      if (!bucket || !Array.isArray(bucket.eleves)) return;
+
+      bucket.eleves.forEach(e => {
+        if (!e) return;
+        const lv2 = normalizeLanguageCode(e.lv2 || e.LV2 || '');
+        languageCounts[lv2] = (languageCounts[lv2] || 0) + 1;
+      });
+    });
+
+    state.availableLanguages = Object.entries(languageCounts)
+      .map(([lang, count]) => ({ lang, count }))
+      .sort((a, b) => b.count - a.count); // Tri par nombre d'élèves décroissant
+
+    // 🟢 FIX #1 : Auto-correction de la langue sélectionnée
+    // Si la langue sélectionnée n'est pas disponible, prendre la première dispo
+    const currentLangAvailable = state.availableLanguages.some(l => l.lang === state.selectedLanguage);
+    if (!currentLangAvailable && state.availableLanguages.length > 0) {
+      state.selectedLanguage = state.availableLanguages[0].lang;
+      showToast(`Langue sélectionnée: ${state.selectedLanguage}`, 'info', 1500);
+    }
+
+    // 🟢 FIX #3 : Sauvegarder la clé de cache pour éviter les recalculs
+    state.cachedLanguageDetectionKey = currentKey;
+
+    // 🟢 FIX #6 : Logging amélioré - afficher les langues complètement
+    const langDisplay = state.availableLanguages.map(l => `${l.lang}(${l.count})`).join(', ');
+    console.log(`[GroupsModule] 🗣️ Langues détectées: [${langDisplay}] → Sélection: ${state.selectedLanguage}`);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  GÉNÉRATION DES GROUPES
+  // ═══════════════════════════════════════════════════════════════
+
+  // ═══════════════════════════════════════════════════════════════
+  //  HELPERS POUR RÉPARTITION INTELLIGENTE
+  // ═══════════════════════════════════════════════════════════════
+
+  function getNeedScoreForStudent(stu) {
+    // récupère F / M tels qu'on les a normalisés
+    const f = (typeof stu.scores?.F === 'number') ? stu.scores.F : null;
+    const m = (typeof stu.scores?.M === 'number') ? stu.scores.M : null;
+
+    // selon le réglage de l'UI
+    if (state.selectedSubject === 'maths') {
+      return (m !== null ? m : 0);
+    }
+    if (state.selectedSubject === 'french') {
+      return (f !== null ? f : 0);
+    }
+
+    // both -> on prend la moyenne dispo
+    if (f !== null && m !== null) return (f + m) / 2;
+    if (f !== null) return f;
+    if (m !== null) return m;
+    return 0;
+  }
+
+  // tri décroissant : meilleurs en premier
+  function sortByNeedScoreDesc(students) {
+    return [...students].sort((a, b) => {
+      return getNeedScoreForStudent(b) - getNeedScoreForStudent(a);
+    });
+  }
+
+  function generateGroupsLocally() {
+    const num = state.numGroups || 3;
+    if (!Array.isArray(state.students) || state.students.length === 0) {
+      console.warn('[GroupsModule] Pas d\'élèves pour générer les groupes');
+      state.generatedGroups = [];
+
+      // 🟢 FIX #2 : Bloquer la génération et afficher alerte
+      showToast('❌ Aucun élève disponible après filtrage. Vérifiez votre sélection.', 'error', 4000);
+      state.isLoading = false;
+      updateUI();
+      return;
+    }
+
+    // 1. Tri adapté au type de groupe
+    let sorted;
+    if (state.groupType === 'language') {
+      // Pour les groupes LV2 : tri par PARTICIPATION (PART) décroissant
+      sorted = [...state.students].sort((a, b) => {
+        const partA = a.part ?? a.scores?.PART ?? 0;
+        const partB = b.part ?? b.scores?.PART ?? 0;
+        return partB - partA; // Décroissant : meilleurs participateurs en premier
+      });
+      console.log('[GroupsModule] 📊 Mode LV2 - Tri par PARTICIPATION');
+      console.log('[GroupsModule] Top 3 élèves:', sorted.slice(0, 3).map(s => `${s.nom} (PART: ${s.part ?? s.scores?.PART ?? 0})`));
+    } else {
+      // Pour les groupes de besoins : tri par niveau (note haute -> élève "fort")
+      sorted = sortByNeedScoreDesc(state.students);
+      console.log('[GroupsModule] 📊 Distribution par mode:', state.distributionType);
+      console.log('[GroupsModule] Top 3 élèves:', sorted.slice(0, 3).map(s => `${s.nom} (${getNeedScoreForStudent(s).toFixed(1)})`));
+    }
+
+    // 🔴 FIX PARITÉ : Entrelacers filles et garçons pour équilibrer
+    const girls = sorted.filter(s => (s.sexe || '').toUpperCase() === 'F');
+    const boys = sorted.filter(s => (s.sexe || '').toUpperCase() === 'M');
+    const other = sorted.filter(s => {
+      const sx = (s.sexe || '').toUpperCase();
+      return sx !== 'F' && sx !== 'M';
+    });
+
+    console.log('[GroupsModule] 👩 Filles: ' + girls.length + ' | 👨 Garçons: ' + boys.length + ' | ❓ Autres: ' + other.length);
+
+    // Entrelacers F et M en gardant l'ordre de score
+    const balanced = [];
+    const maxLen = Math.max(girls.length, boys.length);
+    for (let i = 0; i < maxLen; i++) {
+      if (i < girls.length) balanced.push(girls[i]);
+      if (i < boys.length) balanced.push(boys[i]);
+    }
+    // Ajouter les autres à la fin
+    balanced.push(...other);
+
+    console.log('[GroupsModule] ✅ Liste équilibrée (F/M entrelacées): ' + balanced.length + ' élèves');
+
+    // 2. On prépare les groupes
+    const groups = Array.from({ length: num }, (_, idx) => ({
+      name: `Groupe ${idx + 1}`,
+      students: []
+    }));
+
+    if (state.distributionType === 'homogeneous') {
+      // homogène = on prend le tri équilibré et on découpe en blocs séquentiels
+      const chunkSize = Math.ceil(balanced.length / num);
+      for (let g = 0; g < num; g++) {
+        const slice = balanced.slice(g * chunkSize, (g + 1) * chunkSize);
+        groups[g].students.push(...slice);
+      }
+      console.log('[GroupsModule] ✅ Distribution homogène (groupes de niveau + équilibre F/M)');
+    } else {
+      // heterogeneous = on fait un snake draft sur la liste équilibrée :
+      // 1er tour: G1,G2,G3
+      // 2e tour: G3,G2,G1
+      // 3e tour: G1,G2,G3...
+      let forward = true;
+      let index = 0;
+      balanced.forEach(stu => {
+        groups[index].students.push(stu);
+
+        if (forward) {
+          index++;
+          if (index >= num) {
+            index = num - 1;
+            forward = false;
+          }
+        } else {
+          index--;
+          if (index < 0) {
+            index = 0;
+            forward = true;
+          }
+        }
+      });
+      console.log('[GroupsModule] ✅ Distribution hétérogène (équilibrée par niveau + F/M)');
+    }
+
+    state.generatedGroups = groups;
+    state.lastGeneration = new Date();
+
+    applyOffsetToGeneratedGroups();
+
+    // Log de vérification
+    groups.forEach((g, idx) => {
+      const avgScore = g.students.length > 0
+        ? (g.students.reduce((sum, s) => sum + getNeedScoreForStudent(s), 0) / g.students.length).toFixed(1)
+        : 0;
+      console.log(`[GroupsModule] Groupe ${idx + 1}: ${g.students.length} élèves, niveau moyen: ${avgScore}`);
+    });
+  }
+
+  function generateGroups() {
+    state.isLoading = true;
+    state.loadError = null;
+    updateUI();
+
+    // 🟢 FIX #1 : Toast de feedback immédiat
+    showToast('⏳ Génération en cours...', 'info', 5000);
+
+    const ensureStudentsReady = state.students && state.students.length > 0
+      ? Promise.resolve(state.students)
+      : loadStudentsFromClasses();
+
+    ensureStudentsReady
+      .then(() => {
+        generateGroupsLocally(); // crée state.generatedGroups
+        state.isLoading = false;
+        state.currentStep = 5;   // on passe à l'aperçu
+        updateUI();
+        showToast(`✅ ${state.generatedGroups.length} groupes générés avec succès!`, 'success', 3000);
+      })
+      .catch(err => {
+        state.isLoading = false;
+        state.loadError = err?.message || String(err);
+        updateUI();
+        showToast('❌ Impossible de générer les groupes', 'error');
+      });
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  DRAG & DROP avec SortableJS
+  // ═══════════════════════════════════════════════════════════════
+
+  function initializeDragAndDrop() {
+    // Nettoyer les anciens sortables
+    state.sortables.forEach(sortable => {
+      try {
+        sortable.destroy();
+      } catch (e) {}
+    });
+    state.sortables = [];
+
+    // Vérifier que Sortable est disponible
+    if (typeof Sortable === 'undefined') {
+      console.warn('⚠️ SortableJS non disponible, drag & drop désactivé');
+      return;
+    }
+
+    // Créer un sortable pour chaque groupe
+    qsa('[data-group-id]', state.modal).forEach(groupEl => {
+      const groupId = parseInt(groupEl.dataset.groupId);
+
+      const sortable = Sortable.create(groupEl, {
+        group: 'groups',
+        animation: 200,
+        handle: '.student-card',
+        ghostClass: 'sortable-ghost',
+        chosenClass: 'sortable-chosen',
+        dragClass: 'sortable-drag',
+
+        onEnd: function(evt) {
+          const fromGroupId = parseInt(evt.from.dataset.groupId);
+          const toGroupId = parseInt(evt.to.dataset.groupId);
+          const studentId = evt.item.dataset.studentId;
+
+          if (fromGroupId !== toGroupId) {
+            moveStudent(studentId, fromGroupId, toGroupId);
+          }
+        }
+      });
+
+      state.sortables.push(sortable);
+    });
+  }
+
+  function moveStudent(studentId, fromGroupIndex, toGroupIndex) {
+    // Trouver l'élève dans le groupe source
+    const fromGroup = state.generatedGroups[fromGroupIndex];
+    const studentIndex = fromGroup.students.findIndex(s => s.id === studentId);
+
+    if (studentIndex === -1) return;
+
+    const student = fromGroup.students[studentIndex];
+
+    // Retirer du groupe source
+    fromGroup.students.splice(studentIndex, 1);
+
+    // Ajouter au groupe cible
+    state.generatedGroups[toGroupIndex].students.push(student);
+
+    // Mettre à jour l'affichage des stats
+    updateGroupStats(fromGroupIndex);
+    updateGroupStats(toGroupIndex);
+
+    showToast(`${student.nom} déplacé vers ${state.generatedGroups[toGroupIndex].name}`, 'info', 2000);
+
+    storeGeneratedGroupsForActiveRegroupement();
+  }
+
+  function updateGroupStats(groupIndex) {
+    const groupCard = qs(`[data-group-index="${groupIndex}"]`, state.modal);
+    if (!groupCard) return;
+
+    const group = state.generatedGroups[groupIndex];
+    const stats = calculateGroupStats(group);
+
+    // Update count
+    const countEl = qs('.group-count', groupCard);
+    if (countEl) countEl.textContent = `${group.students.length} élèves`;
+
+    // Update stats
+    const statsContainer = qs('.group-stats', groupCard);
+    if (statsContainer) {
+      statsContainer.innerHTML = `
+        <div class="stat-item">
+          <i class="fas fa-venus-mars text-pink-600"></i>
+          <span>${stats.girls}F / ${stats.boys}M</span>
+        </div>
+        ${state.groupType === 'needs' ? `
+          <div class="stat-item">
+            <i class="fas fa-chart-line text-blue-600"></i>
+            <span>Moy: ${stats.avgScore}</span>
+          </div>
+        ` : ''}
+        ${state.groupType === 'language' ? `
+          <div class="stat-item">
+            <i class="fas fa-comments text-purple-600"></i>
+            <span>PART: ${stats.avgPart}</span>
+          </div>
+        ` : ''}
+      `;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  SAUVEGARDE & EXPORT
+  // ═══════════════════════════════════════════════════════════════
+
+  function saveTempGroupsUI() {
+    if (!google?.script?.run) {
+      showToast('Google Apps Script non disponible', 'error');
+      return;
+    }
+
+    if (!state.generatedGroups || state.generatedGroups.length === 0) {
+      showToast('Aucun groupe à sauvegarder', 'warning');
+      return;
+    }
+
+    const regroupement = getActiveRegroupement();
+    const offsetStart = Number(state.tempOffsetStart) || 1;
+    state.tempOffsetStart = offsetStart;
+
+    const normalizedGroups = state.generatedGroups.map(group => ({
+      name: group.name,
+      index: group.index,
+      students: group.students.map(student => ({ ...student }))
+    }));
+
+    const payload = {
+      type: state.groupType,
+      persistMode: state.persistMode,
+      offsetStart,
+      regroupement: regroupement ? {
+        id: regroupement.id,
+        label: regroupement.label,
+        classes: regroupement.classes,
+        groupCount: regroupement.groupCount
+      } : null,
+      config: {
+        selectedClasses: state.selectedClasses,
+        numGroups: state.numGroups,
+        ...(state.groupType === 'needs' && {
+          subject: state.selectedSubject,
+          distributionType: state.distributionType
+        }),
+        ...(state.groupType === 'language' && {
+          language: state.selectedLanguage
+        })
+      },
+      groups: normalizedGroups,
+      timestamp: new Date().toISOString()
+    };
+
+    showToast('💾 Sauvegarde temporaire en cours...', 'info');
+
+    google.script.run
+      .withSuccessHandler((result) => {
+        if (result.success) {
+          console.log('[GroupsModule] Sauvegarde temp réussie:', result);
+
+          const range = result.createdRange || (result.offsetStart && result.offsetEnd
+            ? { start: result.offsetStart, end: result.offsetEnd }
+            : null);
+
+          state.lastTempRange = range;
+
+          state.continuationData = {
+            ...(state.continuationData || {}),
+            lastTempRange: range || (state.continuationData?.lastTempRange || null),
+            lastTempIndex: result.offsetEnd || state.continuationData?.lastTempIndex || null,
+            lastTempUpdated: result.timestamp || state.continuationData?.lastTempUpdated || null,
+            suggestedNextIndex: result.nextOffset || state.continuationData?.suggestedNextIndex || null,
+            lastFinalRange: state.continuationData?.lastFinalRange || state.lastFinalRange || null
+          };
+
+          if (regroupement) {
+            const startIndex = result.offsetStart || regroupement.offsetStart || state.tempOffsetStart || 1;
+            const endIndex = result.offsetEnd || (startIndex + normalizedGroups.length - 1);
+
+            regroupement.persistMode = state.persistMode;
+            regroupement.offsetStart = startIndex;
+            regroupement.offsetEnd = endIndex;
+            regroupement.lastTempRange = range;
+            regroupement.lastFinalRange = regroupement.lastFinalRange || null;
+            regroupement.groupCount = normalizedGroups.length;
+
+            state.tempOffsetStart = startIndex;
+          }
+
+          applyOffsetToGeneratedGroups();
+          updateUI();
+
+          const start = result.offsetStart || regroupement?.offsetStart;
+          const end = result.offsetEnd || regroupement?.offsetEnd;
+          const suffix = start && end ? ` (Groupes ${start} → ${end})` : '';
+          showToast(`✅ Groupes sauvegardés temporairement${suffix}`, 'success');
+        } else {
+          showToast(`Erreur: ${result.error}`, 'error');
+        }
+      })
+      .withFailureHandler(error => {
+        showToast(`Erreur de sauvegarde : ${error?.message || error}`, 'error');
+      })
+      .saveTempGroups(payload);
+  }
+
+  // ✅ BLOCKER #3 FIX: Utiliser les helpers et meilleur contexte
+  function finalizeTempGroupsUI() {
+    if (!google?.script?.run) {
+      showToast('Google Apps Script non disponible', 'error');
+      return;
+    }
+
+    const typeMap = {
+      'needs': 'Groupes de Besoin',
+      'language': 'Groupes de Langue',
+      'options': 'Groupes d\'Options'
+    };
+
+    const typeName = typeMap[state.groupType] || state.groupType;
+    const regroupement = getActiveRegroupement();
+    const persistMode = getEffectivePersistMode();
+    const lastTemp = getEffectiveLastTempRange();
+    const lastFinal = getEffectiveLastFinalRange();
+
+    const metadata = {
+      offsetStart: regroupement?.offsetStart || getEffectiveOffsetStart() || 1,
+      offsetEnd: regroupement?.offsetEnd || (regroupement?.offsetStart
+        ? regroupement.offsetStart + (state.generatedGroups?.length || 0) - 1
+        : null),
+      lastTempRange: lastTemp,
+      lastFinalRange: lastFinal
+    };
+
+    const request = {
+      type: state.groupType,
+      persistMode: persistMode,
+      metadata,
+      regroupement: regroupement ? {
+        id: regroupement.id,
+        label: regroupement.label,
+        classes: regroupement.classes,
+        groupCount: regroupement.groupCount
+      } : null
+    };
+
+    showToast(`🎯 Finalisation de ${typeName}...`, 'info');
+
+    google.script.run
+      .withSuccessHandler((result) => {
+        if (result.success) {
+          console.log('[GroupsModule] Finalisation réussie:', result);
+
+          const range = result.lastFinalRange;
+
+          // ✅ BLOCKER #3 FIX: Mettre à jour per-regroupement ET global
+          state.lastFinalRange = range || state.lastFinalRange || null;
+          state.continuationData = {
+            ...(state.continuationData || {}),
+            lastFinalRange: state.lastFinalRange,
+            lastUpdated: result.finalizedAt || state.continuationData?.lastUpdated || null,
+            suggestedNextIndex: range ? (range.end + 1) : state.continuationData?.suggestedNextIndex || null,
+            lastTempRange: null // Clear TEMP après finalization
+          };
+
+          if (regroupement) {
+            regroupement.lastFinalRange = range || regroupement.lastFinalRange || null;
+            // Pour le prochain regroupement, suggérer le numéro suivant
+            if (range && persistMode === 'continue') {
+              regroupement.suggestedNextOffset = range.end + 1;
+            }
+          }
+
+          // En mode replace, réinitialiser l'offset pour la prochaine passe
+          if (persistMode === 'replace' && regroupement) {
+            regroupement.offsetStart = 1;
+            state.tempOffsetStart = 1;
+          }
+
+          updateUI();
+          fetchContinuationStatus();
+
+          const suffix = range ? ` (Groupes ${range.start} → ${range.end})` : '';
+          showToast(`✅ ${typeName} finalisés et visibles${suffix}`, 'success');
+        } else {
+          showToast(`Erreur: ${result.error}`, 'error');
+        }
+      })
+      .withFailureHandler(error => {
+        showToast(`Erreur de finalisation : ${error?.message || error}`, 'error');
+      })
+      .finalizeTempGroups(request);
+  }
+
+  function loadTempGroupsUI() {
+    if (!google?.script?.run) {
+      showToast('Google Apps Script non disponible', 'error');
+      return;
+    }
+
+    showToast('📥 Chargement des groupes temporaires...', 'info');
+
+    google.script.run
+      .withSuccessHandler((result) => {
+        if (result.success && Array.isArray(result.groups) && result.groups.length > 0) {
+          const offsetStart = Number(result.offsetStart) || Number(result.range?.start) || state.tempOffsetStart || 1;
+          const normalizedGroups = result.groups.map((group, index) => {
+            const groupIndex = Number(group.index);
+            const resolvedIndex = Number.isFinite(groupIndex) ? groupIndex : (offsetStart + index);
+            const students = Array.isArray(group.students)
+              ? group.students.map((student, sIndex) => {
+                  const normalized = normalizeStudentFromSheet(student, `grp${resolvedIndex}`, sIndex);
+                  return normalized || student;
+                })
+              : [];
+
+            return {
+              name: group.name || `Groupe ${resolvedIndex}`,
+              index: resolvedIndex,
+              students
+            };
+          });
+
+          const regroupement = getActiveRegroupement();
+          const derivedRange = result.range || (result.offsetStart && result.offsetEnd
+            ? { start: result.offsetStart, end: result.offsetEnd }
+            : null);
+
+          state.generatedGroups = normalizedGroups;
+          state.currentStep = 5;
+          state.tempOffsetStart = offsetStart;
+          state.lastTempRange = derivedRange;
+
+          state.continuationData = {
+            ...(state.continuationData || {}),
+            lastTempRange: derivedRange || state.continuationData?.lastTempRange || null,
+            lastTempIndex: derivedRange?.end || state.continuationData?.lastTempIndex || null,
+            suggestedNextIndex: derivedRange?.end ? derivedRange.end + 1 : (state.continuationData?.suggestedNextIndex || null)
+          };
+
+          if (regroupement) {
+            const indexes = normalizedGroups
+              .map(g => Number(g.index))
+              .filter(idx => Number.isFinite(idx));
+            if (indexes.length > 0) {
+              regroupement.offsetStart = Math.min(...indexes);
+              regroupement.offsetEnd = Math.max(...indexes);
+            } else {
+              regroupement.offsetStart = offsetStart;
+              regroupement.offsetEnd = offsetStart + normalizedGroups.length - 1;
+            }
+            regroupement.groupCount = normalizedGroups.length;
+            regroupement.lastTempRange = derivedRange;
+          }
+
+          applyOffsetToGeneratedGroups();
+          updateUI();
+
+          const totalStudents = normalizedGroups.reduce((sum, g) => sum + g.students.length, 0);
+          showToast(`✅ ${result.totalGroups} groupes chargés (${totalStudents} élèves)`, 'success');
+          console.log('[GroupsModule] Groupes chargés:', normalizedGroups);
+        } else {
+          showToast('Aucun groupe temporaire trouvé', 'warning');
+        }
+      })
+      .withFailureHandler(error => {
+        showToast(`Erreur de chargement : ${error?.message || error}`, 'error');
+      })
+      .loadTempGroups(state.groupType);
+  }
+
+  // Alias pour compatibilité avec anciens appels
+  function saveGroups() {
+    saveTempGroupsUI();
+  }
+
+  function exportToPDF() {
+    showToast('Export PDF en développement', 'info');
+    // TODO: Implémenter export PDF
+  }
+
+  function exportToCSV() {
+    if (!state.generatedGroups || state.generatedGroups.length === 0) {
+      showToast('Aucun groupe à exporter', 'warning');
+      return;
+    }
+
+    // Créer le CSV
+    let csv = 'Groupe,Nom,Prénom,Sexe,Classe,LV2\n';
+
+    state.generatedGroups.forEach(group => {
+      group.students.forEach(student => {
+        csv += `"${group.name}","${student.nom}","${student.prenom}","${student.sexe || ''}","${student.classe || ''}","${student.lv2 || ''}"\n`;
+      });
+    });
+
+    // Télécharger
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = documentRef.createElement('a');
+    link.href = url;
+    link.download = `groupes_${new Date().toISOString().split('T')[0]}.csv`;
+    documentRef.body.appendChild(link);
+    link.click();
+    documentRef.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showToast('Export CSV téléchargé', 'success');
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  STYLES CSS
+  // ═══════════════════════════════════════════════════════════════
+
+  function injectStyles() {
+    if (documentRef.getElementById('groups-module-complete-styles')) return;
+
+    const style = documentRef.createElement('style');
+    style.id = 'groups-module-complete-styles';
+    style.textContent = `
+      @keyframes fade-in {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+
+      @keyframes slide-in {
+        from { transform: translateX(30px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+
+      @keyframes slide-in-down {
+        from { transform: translateY(-20px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+      }
+
+      @keyframes slide-out-up {
+        from { transform: translateY(0); opacity: 1; }
+        to { transform: translateY(-20px); opacity: 0; }
+      }
+
+      .animate-fade-in { animation: fade-in 0.2s ease; }
+      .animate-slide-in { animation: slide-in 0.3s ease; }
+      .animate-slide-in-down { animation: slide-in-down 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+      .animate-slide-out-up { animation: slide-out-up 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+
+      /* HEADER - TRANSITIONS FLUIDES */
+      header {
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        opacity: 1;
+        max-height: 300px;
+      }
+
+      header.hidden {
+        display: none !important;
+        opacity: 0;
+        max-height: 0;
+        overflow: hidden !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+
+      /* FOCUS MODE CSS */
+      .focus-mode header {
+        display: none !important;
+      }
+
+      .focus-mode [data-stepper] {
+        display: none !important;
+      }
+
+      .focus-mode .persistence-controls {
+        display: none !important;
+      }
+
+      /* ✅ FIX #1 : Sticky action toolbar pour visibilité constante */
+      .action-toolbar {
+        position: sticky;
+        top: 0;
+        z-index: 40;
+      }
+
+      .focus-mode .action-toolbar {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 50px;
+        z-index: 50;
+        overflow-x: auto;
+        overflow-y: hidden;
+        box-shadow: 0 -2px 8px rgba(0,0,0,0.1);
+      }
+
+      .focus-mode #groups-container {
+        padding-bottom: 60px !important;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+        gap: 12px !important;
+      }
+
+      /* STEPPER */
+      .stepper-step {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: all 0.3s ease;
+      }
+
+      .step-number {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 50%;
+        background: #e2e8f0;
+        color: #64748b;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        font-size: 0.875rem;
+        transition: all 0.3s ease;
+      }
+
+      .step-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #64748b;
+        transition: all 0.3s ease;
+      }
+
+      .stepper-step.active .step-number {
+        background: linear-gradient(135deg, #6366f1, #7c3aed);
+        color: white;
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+      }
+
+      .stepper-step.active .step-label {
+        color: #4f46e5;
+      }
+
+      .stepper-step.current .step-number {
+        transform: scale(1.1);
+      }
+
+      .step-connector {
+        flex: 1;
+        height: 2px;
+        background: #e2e8f0;
+        transition: all 0.3s ease;
+      }
+
+      /* GROUP TYPE CARDS */
+      .group-type-card {
+        position: relative;
+        border: 3px solid #e2e8f0;
+        border-radius: 1.5rem;
+        padding: 2rem;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        background: white;
+      }
+
+      .group-type-card:hover:not(.disabled) {
+        transform: translateY(-4px);
+        box-shadow: 0 20px 40px -20px rgba(99, 102, 241, 0.3);
+        border-color: #c7d2fe;
+      }
+
+      .group-type-card.selected {
+        border-color: #6366f1;
+        background: linear-gradient(135deg, #eff6ff, #faf5ff);
+      }
+
+      .group-type-card.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .group-type-card .icon-wrapper {
+        margin-bottom: 1rem;
+      }
+
+      .group-type-card .icon {
+        font-size: 3rem;
+      }
+
+      .group-type-card .title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 0.5rem;
+      }
+
+      .group-type-card .description {
+        font-size: 0.875rem;
+        color: #64748b;
+        line-height: 1.5;
+      }
+
+      .group-type-card .check-icon {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        font-size: 1.5rem;
+        color: #6366f1;
+      }
+
+      .badge-disabled {
+        display: inline-block;
+        margin-top: 0.5rem;
+        padding: 0.25rem 0.75rem;
+        background: #fbbf24;
+        color: white;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+
+      .badge-recommended {
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        background: #10b981;
+        color: white;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+
+      /* INFO CARDS */
+      .info-card {
+        border: 2px solid;
+        border-radius: 1.25rem;
+        padding: 1.5rem;
+      }
+
+      /* CLASS SELECTION */
+      .class-checkbox-card {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.75rem;
+        border: 2px solid #e2e8f0;
+        border-radius: 0.75rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        background: white;
+      }
+
+      .class-checkbox-card:hover {
+        border-color: #c7d2fe;
+        background: #f8fafc;
+      }
+
+      .class-checkbox-card.selected {
+        border-color: #6366f1;
+        background: linear-gradient(135deg, #eff6ff, #faf5ff);
+      }
+
+      .class-checkbox {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .class-name {
+        font-weight: 600;
+        color: #1e293b;
+      }
+
+      .class-checkbox-card .check-icon {
+        position: absolute;
+        top: 0.25rem;
+        right: 0.25rem;
+        font-size: 1rem;
+        color: #6366f1;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+      }
+
+      .class-checkbox-card.selected .check-icon {
+        opacity: 1;
+      }
+
+      /* CONFIG CARDS */
+      .config-card {
+        border: 2px solid #e2e8f0;
+        border-radius: 1.25rem;
+        background: white;
+        overflow: hidden;
+      }
+
+      .config-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem;
+        background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+        border-bottom: 1px solid #e2e8f0;
+      }
+
+      .config-body {
+        padding: 1rem;
+      }
+
+      .radio-card {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.75rem;
+        border: 2px solid #e2e8f0;
+        border-radius: 0.75rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .radio-card:hover {
+        border-color: #c7d2fe;
+        background: #f8fafc;
+      }
+
+      .radio-card.selected {
+        border-color: #6366f1;
+        background: linear-gradient(135deg, #eff6ff, #faf5ff);
+      }
+
+      .radio-card input[type="radio"] {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .radio-card .check-icon {
+        margin-left: auto;
+        color: #6366f1;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+      }
+
+      .radio-card.selected .check-icon {
+        opacity: 1;
+      }
+
+      .number-btn {
+        width: 2.5rem;
+        height: 2.5rem;
+        border-radius: 0.5rem;
+        border: 2px solid #e2e8f0;
+        background: white;
+        color: #64748b;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .number-btn:hover {
+        border-color: #6366f1;
+        color: #6366f1;
+        background: #eff6ff;
+      }
+
+      .number-display {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #6366f1;
+        min-width: 3rem;
+        text-align: center;
+      }
+
+      /* SUMMARY CARDS */
+      .summary-card {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1.5rem;
+        border: 2px solid #e2e8f0;
+        border-radius: 1.25rem;
+        background: white;
+      }
+
+      .statistics-panel {
+        width: 100%;
+      }
+
+      @media (min-width: 1024px) {
+        .statistics-panel {
+          max-width: 360px;
+        }
+      }
+
+      .summary-icon {
+        width: 3.5rem;
+        height: 3.5rem;
+        border-radius: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        color: white;
+      }
+
+      .summary-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .summary-value {
+        font-size: 1.125rem;
+        font-weight: 700;
+        color: #1e293b;
+        margin-top: 0.25rem;
+      }
+
+      /* GROUP CARDS */
+      .group-card {
+        border: 2px solid #e2e8f0;
+        border-radius: 1.25rem;
+        background: white;
+        overflow: hidden;
+        transition: all 0.2s ease;
+      }
+
+      .group-card:hover {
+        box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.15);
+      }
+
+      .group-header {
+        padding: 1rem 1.25rem;
+        background: linear-gradient(135deg, #6366f1, #7c3aed);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .group-title {
+        font-weight: 700;
+        font-size: 1rem;
+      }
+
+      .group-count {
+        font-size: 0.875rem;
+        opacity: 0.9;
+      }
+
+      .group-stats {
+        padding: 0.75rem 1.25rem;
+        background: #f8fafc;
+        border-bottom: 1px solid #e2e8f0;
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+
+      .stat-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #475569;
+      }
+
+      .group-students {
+        padding: 1rem;
+        min-height: 8rem;
+        max-height: 60rem;
+        overflow-y: auto;
+      }
+
+      /* STUDENT CARDS */
+      .student-card {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem;
+        margin-bottom: 0.375rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.5rem;
+        background: white;
+        cursor: move;
+        transition: all 0.2s ease;
+      }
+
+      .student-card:hover {
+        border-color: #c7d2fe;
+        background: #f8fafc;
+        box-shadow: 0 2px 8px -4px rgba(99, 102, 241, 0.2);
+      }
+
+      .student-sexe {
+        width: 1.5rem;
+        height: 1.5rem;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 0.75rem;
+      }
+
+      .student-sexe.sexe-f {
+        background: #fce7f3;
+        color: #ec4899;
+      }
+
+      .student-sexe.sexe-m {
+        background: #dbeafe;
+        color: #3b82f6;
+      }
+
+      .student-name {
+        font-weight: 600;
+        font-size: 0.875rem;
+        color: #1e293b;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .student-meta {
+        font-size: 0.75rem;
+        color: #64748b;
+      }
+
+      .student-scores {
+        display: flex;
+        gap: 0.5rem;
+        margin-left: auto;
+      }
+
+      .score-badge {
+        padding: 0.25rem 0.5rem;
+        background: #f1f5f9;
+        border-radius: 0.375rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #475569;
+      }
+
+      .score-badge.avg {
+        background: linear-gradient(135deg, #6366f1, #7c3aed);
+        color: white;
+      }
+
+      .drag-handle {
+        cursor: grab;
+      }
+
+      .drag-handle:active {
+        cursor: grabbing;
+      }
+
+      /* ✅ FIX #2 : Carte élève compacte (1 ligne pour plus de densité verticale) */
+      .student-card-compact {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.5rem;
+        margin-bottom: 0.3rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.375rem;
+        background: white;
+        cursor: move;
+        transition: all 0.2s ease;
+        font-size: 0.75rem;
+      }
+
+      .student-card-compact:hover {
+        border-color: #c7d2fe;
+        background: #f8fafc;
+        box-shadow: 0 2px 8px -4px rgba(99, 102, 241, 0.2);
+      }
+
+      .student-card-compact .student-sexe-mini {
+        width: 1.25rem;
+        height: 1.25rem;
+        border-radius: 0.25rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 0.625rem;
+        flex-shrink: 0;
+      }
+
+      .student-card-compact .student-sexe-mini.sexe-f {
+        background: #fce7f3;
+        color: #ec4899;
+      }
+
+      .student-card-compact .student-sexe-mini.sexe-m {
+        background: #dbeafe;
+        color: #3b82f6;
+      }
+
+      .student-card-compact .student-fullname {
+        font-weight: 600;
+        font-size: 0.8rem;
+        color: #1e293b;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-w-0;
+        flex: 1;
+      }
+
+      .student-card-compact .student-class-mini {
+        font-size: 0.7rem;
+        color: #64748b;
+        white-space: nowrap;
+        padding: 0.15rem 0.4rem;
+        background: #f1f5f9;
+        border-radius: 0.25rem;
+        flex-shrink: 0;
+      }
+
+      .student-card-compact .student-score-mini {
+        display: inline-flex;
+        gap: 0.25rem;
+        margin-left: auto;
+        flex-shrink: 0;
+      }
+
+      .student-card-compact .score-mini {
+        padding: 0.125rem 0.375rem;
+        background: #f1f5f9;
+        border-radius: 0.25rem;
+        font-size: 0.65rem;
+        font-weight: 600;
+        color: #475569;
+        white-space: nowrap;
+      }
+
+      .student-card-compact .score-mini.avg {
+        background: linear-gradient(135deg, #6366f1, #7c3aed);
+        color: white;
+      }
+
+      .student-card-compact .drag-handle-mini {
+        cursor: grab;
+        font-size: 0.6rem;
+        color: #cbd5e1;
+        flex-shrink: 0;
+      }
+
+      .student-card-compact .drag-handle-mini:active {
+        cursor: grabbing;
+      }
+
+      /* SORTABLE STATES */
+      .sortable-ghost {
+        opacity: 0.4;
+        background: #eff6ff;
+      }
+
+      .sortable-chosen {
+        border-color: #6366f1;
+        box-shadow: 0 8px 24px -12px rgba(99, 102, 241, 0.4);
+      }
+
+      .sortable-drag {
+        transform: rotate(3deg);
+      }
+
+      /* ACTION BUTTONS */
+      .action-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        border-radius: 0.75rem;
+        font-weight: 600;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: none;
+      }
+
+      .action-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px -6px rgba(0, 0, 0, 0.2);
+      }
+
+      /* ACTION BUTTONS COMPACT */
+      .action-btn-compact {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.25rem;
+        height: 2.25rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: none;
+      }
+
+      .action-btn-compact:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px -4px rgba(0, 0, 0, 0.2);
+      }
+
+      /* ACTION BUTTONS MICRO (Focus mode) */
+      .action-btn-micro {
+        width: 36px;
+        height: 36px;
+        padding: 0;
+        border-radius: 6px;
+        border: none;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 200ms;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .action-btn-micro:hover {
+        transform: scale(1.05);
+      }
+
+      /* SPINNERS */
+      .spinner-large {
+        width: 4rem;
+        height: 4rem;
+        border: 4px solid #e2e8f0;
+        border-top-color: #6366f1;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .delay-100 { animation-delay: 0.1s; }
+      .delay-200 { animation-delay: 0.2s; }
+    `;
+
+    documentRef.head.appendChild(style);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  MODULE PUBLIC API
+  // ═══════════════════════════════════════════════════════════════
+
+  const GroupsModuleComplete = {
+    version: '1.0.0',
+
+    init() {
+      console.log('✅ GroupsModuleComplete initialisé');
+    },
+
+    open() {
+      console.log('🚀 Ouverture du module complet de groupes');
+      createModal();
+    },
+
+    close: closeModal,
+
+    getState() {
+      return { ...state };
+    },
+
+    // Fonctions publiques pour la gestion des groupes temporaires
+    saveTempGroupsUI,
+    loadTempGroupsUI,
+    finalizeTempGroupsUI
+  };
+
+  // Injecter les styles
+  injectStyles();
+
+  // Exposer le module
+  windowRef.GroupsModuleComplete = GroupsModuleComplete;
+
+  // Initialisation automatique
+  if (documentRef.readyState === 'loading') {
+    documentRef.addEventListener('DOMContentLoaded', () => {
+      GroupsModuleComplete.init();
+    });
+  } else {
+    GroupsModuleComplete.init();
+  }
+
+  console.log('✅ Module Complet de Gestion des Groupes chargé avec succès');
+
+  // ═══════════════════════════════════════════════════════════════
+  //  GESTION DU BOUTON INTERFACE V4
+  // ═══════════════════════════════════════════════════════════════
+
+  // Ajouter un event listener pour le bouton V4
+  documentRef.addEventListener('click', function(e) {
+    const target = e.target.closest('#toggle-interface-v4, #toggle-interface-v4-micro, #toggle-interface-v4-full');
+    if (target) {
+      console.log('🚀 Basculement vers Interface V4');
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Fermer l'ancienne interface
+      const oldModal = documentRef.querySelector('[data-groups-modal="complete"]');
+      if (oldModal) {
+        oldModal.remove();
+      }
+      
+      // Ouvrir la nouvelle interface V4
+      if (windowRef.ModuleGroupsV4) {
+        // L'interface V4 existe déjà, l'afficher
+        const v4Module = documentRef.getElementById('groups-module-v4');
+        if (v4Module) {
+          v4Module.style.display = 'flex';
+        } else {
+          // Créer l'interface V4
+          createInterfaceV4();
+        }
+      } else {
+        console.warn('⚠️ Interface V4 non chargée, création en cours...');
+        createInterfaceV4();
+      }
+    }
+  });
+
+  // Fonction pour créer l'interface V4
+  function createInterfaceV4() {
+    // Créer le conteneur principal
+    const v4Container = documentRef.createElement('div');
+    v4Container.id = 'groups-module-v4';
+    v4Container.className = 'fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/70 px-4';
+    
+    v4Container.innerHTML = `
+      <div class="bg-white rounded-3xl shadow-2xl w-full max-w-[98vw] max-h-[98vh] overflow-hidden flex flex-col">
+        <!-- Header -->
+        <header class="px-8 pt-6 pb-4 border-b border-slate-200 bg-gradient-to-br from-purple-50 via-white to-indigo-50">
+          <div class="flex items-start justify-between gap-6">
+            <div class="flex items-center gap-4">
+              <div class="h-14 w-14 rounded-2xl bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center text-3xl shadow-lg">
+                ✨
+              </div>
+              <div>
+                <h2 class="text-2xl font-bold text-slate-900">Nouvelle Interface V4 (Beta)</h2>
+                <p class="text-sm text-slate-600 mt-1">Interface refonte avec workflow guidé en 3 phases</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" id="back-to-old-interface" class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold">
+                <i class="fas fa-arrow-left mr-2"></i>
+                Ancienne Interface
+              </button>
+              <button type="button" id="close-v4-interface" class="text-slate-400 hover:text-slate-600 p-2 hover:bg-slate-100 rounded-lg">
+                <i class="fas fa-times text-2xl"></i>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <!-- Contenu V4 -->
+        <div class="flex-1 overflow-hidden flex">
+          <!-- Colonne 1: Phases -->
+          <div class="w-64 border-r border-slate-200 bg-slate-50 p-6">
+            <h3 class="text-sm font-semibold text-slate-700 mb-4">ÉTAPES</h3>
+            <div id="phases-list-v4" class="space-y-2">
+              <!-- Les phases seront ajoutées ici -->
+            </div>
+          </div>
+
+          <!-- Colonne 2: Contenu -->
+          <div class="flex-1 p-8 overflow-y-auto">
+            <div id="content-area-v4">
+              <div class="text-center py-12">
+                <div class="text-6xl mb-4">🚀</div>
+                <h3 class="text-2xl font-bold text-slate-900 mb-2">Interface V4 en cours de développement</h3>
+                <p class="text-slate-600 mb-6">Cette nouvelle interface sera bientôt disponible avec un workflow guidé en 3 phases.</p>
+                <div class="bg-purple-50 border border-purple-200 rounded-lg p-6 max-w-2xl mx-auto text-left">
+                  <h4 class="font-semibold text-purple-900 mb-3">Nouvelles fonctionnalités :</h4>
+                  <ul class="space-y-2 text-sm text-purple-800">
+                    <li class="flex items-start gap-2">
+                      <i class="fas fa-check text-purple-600 mt-0.5"></i>
+                      <span><strong>Phase 1 :</strong> Sélection du scénario pédagogique (Besoins, LV2, Options)</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                      <i class="fas fa-check text-purple-600 mt-0.5"></i>
+                      <span><strong>Phase 2 :</strong> Choix du mode de distribution (Hétérogène/Homogène)</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                      <i class="fas fa-check text-purple-600 mt-0.5"></i>
+                      <span><strong>Phase 3 :</strong> Gestion des associations de classes avec passes multiples</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                      <i class="fas fa-check text-purple-600 mt-0.5"></i>
+                      <span><strong>Algorithme V4 :</strong> Normalisation z-scores, pondérations adaptatives, équilibrage automatique</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                      <i class="fas fa-check text-purple-600 mt-0.5"></i>
+                      <span><strong>Swap Manager :</strong> Historique des ajustements avec undo/redo</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Colonne 3: Récapitulatif -->
+          <div class="w-80 border-l border-slate-200 bg-slate-50 p-6">
+            <h3 class="text-sm font-semibold text-slate-700 mb-4">RÉCAPITULATIF</h3>
+            <div id="summary-panel-v4" class="space-y-4">
+              <div class="bg-white rounded-lg p-4 border border-slate-200">
+                <p class="text-sm text-slate-600">Aucune configuration pour le moment</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="px-8 py-4 border-t border-slate-200 bg-slate-50">
+          <div class="flex items-center justify-between">
+            <button type="button" id="back-to-old-interface-footer" class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold">
+              <i class="fas fa-arrow-left mr-2"></i>
+              Retour à l'ancienne interface
+            </button>
+            <button type="button" class="px-6 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold" disabled>
+              Continuer
+            </button>
+          </div>
+        </footer>
+      </div>
+    `;
+    
+    documentRef.body.appendChild(v4Container);
+    
+    // Event listeners pour fermer ou revenir
+    documentRef.getElementById('close-v4-interface').addEventListener('click', function() {
+      v4Container.remove();
+    });
+    
+    documentRef.getElementById('back-to-old-interface').addEventListener('click', function() {
+      v4Container.remove();
+      // Réouvrir l'ancienne interface
+      if (windowRef.GroupsModuleComplete) {
+        windowRef.GroupsModuleComplete.open();
+      }
+    });
+    
+    documentRef.getElementById('back-to-old-interface-footer').addEventListener('click', function() {
+      v4Container.remove();
+      // Réouvrir l'ancienne interface
+      if (windowRef.GroupsModuleComplete) {
+        windowRef.GroupsModuleComplete.open();
+      }
+    });
+    
+    console.log('✅ Interface V4 créée');
+  }
+
+})(typeof window !== 'undefined' ? window : this);
+</script>

@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Module Groupes V4 - Triptyque 30/40/30</title>
+  <style>
+    /* =========================================
+       STRUCTURE TRIPTYQUE 30/40/30
+       ========================================= */
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #f8fafc;
+      overflow: hidden;
+    }
+
+    #groups-triptyque-container {
+      display: flex;
+      height: 100vh;
+      width: 100%;
+    }
+
+    /* Colonne A : Scénarios et Contraintes (30%) */
+    .column-a {
+      width: 30%;
+      background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+      border-right: 1px solid #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    /* Colonne B : Regroupements (40%) */
+    .column-b {
+      width: 40%;
+      background: #ffffff;
+      border-right: 1px solid #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    /* Colonne C : Aperçu détaillé (30%) */
+    .column-c {
+      width: 30%;
+      background: linear-gradient(180deg, #fafbfc 0%, #f9fafb 100%);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    /* =========================================
+       HEADER SECTIONS
+       ========================================= */
+
+    .section-header {
+      background: white;
+      padding: 20px;
+      border-bottom: 2px solid #e2e8f0;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 8px;
+    }
+
+    .section-subtitle {
+      font-size: 13px;
+      color: #64748b;
+      line-height: 1.5;
+    }
+
+    /* =========================================
+       BADGES ET ÉTATS
+       ========================================= */
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      gap: 4px;
+    }
+
+    .badge-draft {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .badge-validated {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .badge-ready {
+      background: #dbeafe;
+      color: #1e3a8a;
+    }
+
+    .badge-count {
+      background: #f1f5f9;
+      color: #475569;
+    }
+
+    /* =========================================
+       COLONNE A : SCÉNARIOS
+       ========================================= */
+
+    .objective-banner {
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      color: white;
+      padding: 16px 20px;
+      margin: 0;
+    }
+
+    .objective-title {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .objective-text {
+      font-size: 13px;
+      opacity: 0.95;
+      line-height: 1.5;
+    }
+
+    .scenarios-section {
+      padding: 20px;
+    }
+
+    .scenario-btn {
+      width: 100%;
+      padding: 16px;
+      margin-bottom: 12px;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      background: white;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .scenario-btn:hover {
+      border-color: #6366f1;
+      background: #f5f3ff;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+    }
+
+    .scenario-btn.active {
+      border-color: #6366f1;
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      color: white;
+      box-shadow: 0 8px 20px rgba(99, 102, 241, 0.3);
+    }
+
+    .scenario-icon {
+      font-size: 24px;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .scenario-content {
+      flex: 1;
+    }
+
+    .scenario-name {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .scenario-desc {
+      font-size: 12px;
+      opacity: 0.85;
+    }
+
+    /* Contraintes Section */
+    .constraints-section {
+      padding: 20px;
+      background: white;
+      margin: 0 20px 20px;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+    }
+
+    .constraints-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .mode-selector {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 12px;
+      border: 2px solid #e2e8f0;
+      border-radius: 8px;
+      background: white;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .mode-btn.heterogeneous {
+      border-color: #3b82f6;
+      color: #1e40af;
+    }
+
+    .mode-btn.heterogeneous.active {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      color: white;
+    }
+
+    .mode-btn.homogeneous {
+      border-color: #8b5cf6;
+      color: #6d28d9;
+    }
+
+    .mode-btn.homogeneous.active {
+      background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+      color: white;
+    }
+
+    /* Checklist guidée */
+    .guided-checklist {
+      margin-top: auto;
+      padding: 20px;
+      background: white;
+      border-top: 2px solid #e2e8f0;
+    }
+
+    .checklist-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #64748b;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .checklist-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      font-size: 13px;
+      color: #475569;
+    }
+
+    .checklist-item.completed {
+      color: #10b981;
+    }
+
+    .checklist-icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid #cbd5e1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+    }
+
+    .checklist-item.completed .checklist-icon {
+      background: #10b981;
+      border-color: #10b981;
+      color: white;
+    }
+
+    /* =========================================
+       COLONNE B : REGROUPEMENTS
+       ========================================= */
+
+    .classes-distinction {
+      padding: 20px;
+    }
+
+    .classes-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .classes-label {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1e293b;
+    }
+
+    .classes-count {
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    .classes-container {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .classes-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 150px;
+    }
+
+    .classes-box-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      letter-spacing: 0.5px;
+    }
+
+    .class-item {
+      padding: 8px 12px;
+      background: white;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .class-item:hover {
+      border-color: #6366f1;
+      background: #f5f3ff;
+      transform: translateX(2px);
+    }
+
+    .class-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #1e293b;
+    }
+
+    .class-students-count {
+      font-size: 11px;
+      color: #64748b;
+      background: #f1f5f9;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .actions-column {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      justify-content: center;
+    }
+
+    .action-btn {
+      width: 36px;
+      height: 36px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      background: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+      font-size: 16px;
+    }
+
+    .action-btn:hover {
+      background: #6366f1;
+      border-color: #6366f1;
+      color: white;
+      transform: scale(1.1);
+    }
+
+    /* Regroupements list */
+    .regroupements-list {
+      padding: 20px;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .regroupement-card {
+      background: white;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .regroupement-card:hover {
+      border-color: #6366f1;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+    }
+
+    .regroupement-card.active {
+      border-color: #6366f1;
+      background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+      box-shadow: 0 8px 20px rgba(99, 102, 241, 0.2);
+    }
+
+    .regroupement-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .regroupement-name {
+      font-size: 15px;
+      font-weight: 700;
+      color: #1e293b;
+    }
+
+    .regroupement-stats {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .stat-item {
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    .stat-value {
+      font-weight: 700;
+      color: #1e293b;
+    }
+
+    /* CTA bandeau fixe */
+    .cta-banner {
+      background: white;
+      border-top: 2px solid #e2e8f0;
+      padding: 16px 20px;
+      position: sticky;
+      bottom: 0;
+      display: flex;
+      gap: 12px;
+    }
+
+    .cta-btn {
+      flex: 1;
+      padding: 14px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .cta-btn-primary {
+      background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+      color: white;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    }
+
+    .cta-btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
+    }
+
+    .cta-btn-secondary {
+      background: white;
+      color: #64748b;
+      border: 2px solid #e2e8f0;
+    }
+
+    .cta-btn-secondary:hover {
+      border-color: #6366f1;
+      color: #6366f1;
+    }
+
+    .cta-btn-add {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: white;
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+    }
+
+    .cta-btn-add:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(16, 185, 129, 0.4);
+    }
+
+    /* =========================================
+       COLONNE C : APERÇU DÉTAILLÉ
+       ========================================= */
+
+    .preview-carousel {
+      padding: 20px;
+    }
+
+    .carousel-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .carousel-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1e293b;
+    }
+
+    .carousel-nav {
+      display: flex;
+      gap: 8px;
+    }
+
+    .carousel-btn {
+      width: 32px;
+      height: 32px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      background: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+    }
+
+    .carousel-btn:hover {
+      background: #6366f1;
+      border-color: #6366f1;
+      color: white;
+    }
+
+    .groups-preview {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .group-column {
+      background: white;
+      border: 2px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .group-header {
+      font-size: 12px;
+      font-weight: 700;
+      color: #64748b;
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .student-item {
+      padding: 8px;
+      background: #f8fafc;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: move;
+    }
+
+    .student-name {
+      font-weight: 600;
+      color: #1e293b;
+    }
+
+    .swap-btn {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #e2e8f0;
+      border: none;
+      cursor: pointer;
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: all 0.15s;
+    }
+
+    .student-item:hover .swap-btn {
+      opacity: 1;
+    }
+
+    .swap-btn:hover {
+      background: #6366f1;
+      color: white;
+    }
+
+    /* Statistiques dynamiques */
+    .stats-panel {
+      background: white;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 16px;
+      margin: 0 20px 20px;
+    }
+
+    .stats-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #64748b;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+
+    .stat-card {
+      padding: 12px;
+      background: #f8fafc;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: #64748b;
+      margin-bottom: 4px;
+    }
+
+    .stat-number {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1e293b;
+    }
+
+    /* Boutons de sauvegarde */
+    .save-actions {
+      padding: 20px;
+      background: white;
+      border-top: 2px solid #e2e8f0;
+      margin-top: auto;
+      position: sticky;
+      bottom: 0;
+    }
+
+    .save-btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 8px;
+    }
+
+    .save-btn-draft {
+      background: #fef3c7;
+      color: #92400e;
+      border: 2px solid #fbbf24;
+    }
+
+    .save-btn-draft:hover {
+      background: #fbbf24;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(251, 191, 36, 0.3);
+    }
+
+    .save-btn-finalize {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: white;
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+    }
+
+    .save-btn-finalize:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(16, 185, 129, 0.4);
+    }
+
+    .save-btn-export {
+      background: white;
+      color: #64748b;
+      border: 2px solid #e2e8f0;
+    }
+
+    .save-btn-export:hover {
+      border-color: #6366f1;
+      color: #6366f1;
+    }
+
+    /* =========================================
+       SCROLLBARS PERSONNALISÉS
+       ========================================= */
+
+    .column-a::-webkit-scrollbar,
+    .column-b::-webkit-scrollbar,
+    .column-c::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .column-a::-webkit-scrollbar-track,
+    .column-b::-webkit-scrollbar-track,
+    .column-c::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+
+    .column-a::-webkit-scrollbar-thumb,
+    .column-b::-webkit-scrollbar-thumb,
+    .column-c::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+
+    .column-a::-webkit-scrollbar-thumb:hover,
+    .column-b::-webkit-scrollbar-thumb:hover,
+    .column-c::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+
+    /* =========================================
+       SNACKBAR FEEDBACK
+       ========================================= */
+
+    .snackbar {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      color: white;
+      padding: 14px 24px;
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+      font-size: 14px;
+      font-weight: 600;
+      z-index: 9999;
+      display: none;
+    }
+
+    .snackbar.show {
+      display: block;
+      animation: slideUp 0.3s ease-out;
+    }
+
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+    }
+
+    /* =========================================
+       RESPONSIVE
+       ========================================= */
+
+    @media (max-width: 1200px) {
+      .column-a { width: 25%; }
+      .column-b { width: 45%; }
+      .column-c { width: 30%; }
+    }
+
+    @media (max-width: 768px) {
+      #groups-triptyque-container {
+        flex-direction: column;
+      }
+
+      .column-a,
+      .column-b,
+      .column-c {
+        width: 100% !important;
+        height: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="groups-triptyque-container">
+
+    <!-- ========== COLONNE A : SCÉNARIOS ET CONTRAINTES (30%) ========== -->
+    <div class="column-a">
+      <!-- Bandeau Objectif -->
+      <div class="objective-banner">
+        <div class="objective-title">🎯 Objectif</div>
+        <div class="objective-text">
+          Configurez votre scénario de regroupement, définissez les contraintes et créez des groupes équilibrés.
+        </div>
+      </div>
+
+      <!-- Section Header -->
+      <div class="section-header">
+        <div class="section-title">Scénarios</div>
+        <div class="section-subtitle">Choisissez le type de regroupement</div>
+      </div>
+
+      <!-- Scénarios Buttons -->
+      <div class="scenarios-section">
+        <button class="scenario-btn active" data-scenario="needs" id="scenario-needs">
+          <div class="scenario-icon">📊</div>
+          <div class="scenario-content">
+            <div class="scenario-name">Besoins</div>
+            <div class="scenario-desc">Équilibrer les profils académiques</div>
+          </div>
+        </button>
+
+        <button class="scenario-btn" data-scenario="lv2" id="scenario-lv2">
+          <div class="scenario-icon">🗣️</div>
+          <div class="scenario-content">
+            <div class="scenario-name">LV2</div>
+            <div class="scenario-desc">Organiser par langue choisie</div>
+          </div>
+        </button>
+
+        <button class="scenario-btn" data-scenario="options" id="scenario-options">
+          <div class="scenario-icon">⭐</div>
+          <div class="scenario-content">
+            <div class="scenario-name">Options</div>
+            <div class="scenario-desc">Grouper par enseignements électifs</div>
+          </div>
+        </button>
+      </div>
+
+      <!-- Contraintes Section -->
+      <div class="constraints-section">
+        <div class="constraints-title">
+          <span>⚙️</span>
+          <span>Contraintes</span>
+        </div>
+
+        <div class="mode-selector">
+          <button class="mode-btn heterogeneous active" data-mode="heterogeneous" id="mode-heterogeneous">
+            🔀 Hétérogène
+          </button>
+          <button class="mode-btn homogeneous" data-mode="homogeneous" id="mode-homogeneous">
+            📊 Homogène
+          </button>
+        </div>
+
+        <div class="stat-item">
+          <span class="stat-label">Classes totales :</span>
+          <span class="stat-value" id="total-classes-count">0</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Élèves totaux :</span>
+          <span class="stat-value" id="total-students-count">0</span>
+        </div>
+      </div>
+
+      <!-- Checklist guidée (sticky en bas) -->
+      <div class="guided-checklist">
+        <div class="checklist-title">📋 Progression</div>
+        <div class="checklist-item completed" id="checklist-1">
+          <div class="checklist-icon">✓</div>
+          <span>1. Choisir le scénario</span>
+        </div>
+        <div class="checklist-item" id="checklist-2">
+          <div class="checklist-icon">2</div>
+          <span>2. Définir un regroupement</span>
+        </div>
+        <div class="checklist-item" id="checklist-3">
+          <div class="checklist-icon">3</div>
+          <span>3. Assigner les classes</span>
+        </div>
+        <div class="checklist-item" id="checklist-4">
+          <div class="checklist-icon">4</div>
+          <span>4. Générer les groupes</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== COLONNE B : REGROUPEMENTS (40%) ========== -->
+    <div class="column-b">
+      <!-- Section Header -->
+      <div class="section-header">
+        <div class="section-title">Regroupements</div>
+        <div class="section-subtitle">Gérez vos associations de classes</div>
+      </div>
+
+      <!-- Classes Distinction -->
+      <div class="classes-distinction">
+        <div class="classes-header">
+          <div class="classes-label">Gestion des classes</div>
+          <div class="classes-count">
+            <span class="badge badge-count" id="available-count">0 disponible</span>
+            <span class="badge badge-count" id="assigned-count">0 assignée</span>
+          </div>
+        </div>
+
+        <div class="classes-container">
+          <!-- Classes disponibles -->
+          <div class="classes-box">
+            <div class="classes-box-title">Disponibles</div>
+            <div id="available-classes-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Actions rapides -->
+          <div class="actions-column">
+            <button class="action-btn" id="action-assign-all" title="Tout assigner">»</button>
+            <button class="action-btn" id="action-assign-selected" title="Assigner sélection">›</button>
+            <button class="action-btn" id="action-remove-selected" title="Retirer sélection">‹</button>
+            <button class="action-btn" id="action-remove-all" title="Tout retirer">«</button>
+          </div>
+
+          <!-- Classes assignées -->
+          <div class="classes-box">
+            <div class="classes-box-title">Assignées</div>
+            <div id="assigned-classes-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Liste des regroupements -->
+      <div class="regroupements-list" id="regroupements-list">
+        <!-- Dynamically populated regroupement cards -->
+      </div>
+
+      <!-- CTA Bandeau fixe -->
+      <div class="cta-banner">
+        <button class="cta-btn cta-btn-add" id="btn-add-regroupement">
+          ➕ Ajouter un regroupement
+        </button>
+        <button class="cta-btn cta-btn-primary" id="btn-generate-groups">
+          ⚡ Générer les groupes
+        </button>
+        <button class="cta-btn cta-btn-secondary" id="btn-preview">
+          👁️ Prévisualiser
+        </button>
+        <button class="cta-btn cta-btn-secondary" id="btn-reset">
+          🔄 Réinitialiser
+        </button>
+      </div>
+    </div>
+
+    <!-- ========== COLONNE C : APERÇU DÉTAILLÉ (30%) ========== -->
+    <div class="column-c">
+      <!-- Section Header -->
+      <div class="section-header">
+        <div class="section-title">Aperçu détaillé</div>
+        <div class="section-subtitle">Visualisez et ajustez vos groupes</div>
+      </div>
+
+      <!-- Carrousel de regroupements -->
+      <div class="preview-carousel">
+        <div class="carousel-controls">
+          <div class="carousel-title" id="carousel-current-title">Aucun regroupement</div>
+          <div class="carousel-nav">
+            <button class="carousel-btn" id="carousel-prev">‹</button>
+            <span id="carousel-indicator">0/0</span>
+            <button class="carousel-btn" id="carousel-next">›</button>
+          </div>
+        </div>
+
+        <!-- Preview des groupes (colonnes élèves) -->
+        <div class="groups-preview" id="groups-preview">
+          <!-- Dynamically populated group columns -->
+        </div>
+      </div>
+
+      <!-- Statistiques dynamiques -->
+      <div class="stats-panel">
+        <div class="stats-title">📊 Statistiques</div>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Groupes</div>
+            <div class="stat-number" id="stat-groups">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Élèves</div>
+            <div class="stat-number" id="stat-students">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Taille moy.</div>
+            <div class="stat-number" id="stat-avg-size">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Parité</div>
+            <div class="stat-number" id="stat-parity">0%</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Boutons de sauvegarde (sticky en bas) -->
+      <div class="save-actions">
+        <button class="save-btn save-btn-draft" id="btn-save-draft">
+          💾 Enregistrer en brouillon
+        </button>
+        <button class="save-btn save-btn-finalize" id="btn-finalize">
+          ✅ Finaliser
+        </button>
+        <button class="save-btn save-btn-export" id="btn-export">
+          📥 Exporter CSV
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Snackbar pour feedback -->
+  <div class="snackbar" id="snackbar"></div>
+
+  <script>
+    // ========== UTILITAIRES ==========
+    function showSnackbar(message, duration = 3000) {
+      const snackbar = document.getElementById('snackbar');
+      snackbar.textContent = message;
+      snackbar.classList.add('show');
+      setTimeout(() => {
+        snackbar.classList.remove('show');
+      }, duration);
+    }
+
+    // ========== ÉTAT APPLICATION ==========
+    const state = {
+      scenario: 'needs',
+      mode: 'heterogeneous',
+      regroupements: [],
+      availableClasses: [],
+      assignedClasses: [],
+      currentCarouselIndex: 0
+    };
+
+    // ========== INITIALISATION ==========
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log('✅ Interface triptyque 30/40/30 initialisée');
+
+      // Initialiser les gestionnaires d'événements
+      initEventListeners();
+
+      // Charger les données si disponibles
+      loadData();
+
+      // Rendre l'interface initiale
+      render();
+    });
+
+    function initEventListeners() {
+      // Scénarios
+      document.querySelectorAll('[data-scenario]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          document.querySelectorAll('[data-scenario]').forEach(b => b.classList.remove('active'));
+          e.currentTarget.classList.add('active');
+          state.scenario = e.currentTarget.dataset.scenario;
+          showSnackbar(`Scénario "${e.currentTarget.dataset.scenario}" sélectionné`);
+        });
+      });
+
+      // Modes
+      document.querySelectorAll('[data-mode]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          document.querySelectorAll('[data-mode]').forEach(b => b.classList.remove('active'));
+          e.currentTarget.classList.add('active');
+          state.mode = e.currentTarget.dataset.mode;
+          showSnackbar(`Mode "${e.currentTarget.dataset.mode}" activé`);
+        });
+      });
+
+      // CTA Buttons
+      document.getElementById('btn-add-regroupement')?.addEventListener('click', addRegroupement);
+      document.getElementById('btn-generate-groups')?.addEventListener('click', generateGroups);
+      document.getElementById('btn-preview')?.addEventListener('click', preview);
+      document.getElementById('btn-reset')?.addEventListener('click', reset);
+
+      // Carousel
+      document.getElementById('carousel-prev')?.addEventListener('click', () => navigateCarousel(-1));
+      document.getElementById('carousel-next')?.addEventListener('click', () => navigateCarousel(1));
+
+      // Save Actions
+      document.getElementById('btn-save-draft')?.addEventListener('click', saveDraft);
+      document.getElementById('btn-finalize')?.addEventListener('click', finalize);
+      document.getElementById('btn-export')?.addEventListener('click', exportCSV);
+    }
+
+    function loadData() {
+      // Charger depuis GROUPS_MODULE_V4_DATA si disponible
+      if (window.GROUPS_MODULE_V4_DATA) {
+        state.availableClasses = window.GROUPS_MODULE_V4_DATA.classes || [];
+        console.log('✅ Données chargées:', state.availableClasses.length, 'classes');
+      }
+    }
+
+    function render() {
+      // Mettre à jour les compteurs
+      document.getElementById('total-classes-count').textContent = state.availableClasses.length;
+      document.getElementById('available-count').textContent = `${state.availableClasses.length - state.assignedClasses.length} disponible`;
+      document.getElementById('assigned-count').textContent = `${state.assignedClasses.length} assignée`;
+    }
+
+    // ========== ACTIONS ==========
+    function addRegroupement() {
+      const newRegroupement = {
+        id: `regroupement-${Date.now()}`,
+        name: `Regroupement ${state.regroupements.length + 1}`,
+        classes: [],
+        groupCount: 3
+      };
+      state.regroupements.push(newRegroupement);
+      showSnackbar(`Regroupement "${newRegroupement.name}" créé`);
+      // TODO: Render regroupement card
+    }
+
+    function generateGroups() {
+      showSnackbar('Génération des groupes en cours...');
+      // TODO: Déclencher événement groups:generate
+      console.log('🚀 Génération des groupes pour', state.regroupements.length, 'regroupements');
+    }
+
+    function preview() {
+      showSnackbar('Prévisualisation activée');
+    }
+
+    function reset() {
+      if (confirm('Êtes-vous sûr de vouloir réinitialiser tous les regroupements ?')) {
+        state.regroupements = [];
+        state.assignedClasses = [];
+        render();
+        showSnackbar('Regroupements réinitialisés');
+      }
+    }
+
+    function navigateCarousel(direction) {
+      state.currentCarouselIndex = Math.max(0, Math.min(state.regroupements.length - 1, state.currentCarouselIndex + direction));
+      // TODO: Afficher le regroupement actuel
+    }
+
+    function saveDraft() {
+      showSnackbar('Brouillon sauvegardé');
+      // TODO: Déclencher événement groups:save-draft
+    }
+
+    function finalize() {
+      showSnackbar('Configuration finalisée');
+      // TODO: Déclencher événement groups:save-final
+    }
+
+    function exportCSV() {
+      showSnackbar('Export CSV en cours...');
+      // TODO: Générer et télécharger CSV
+    }
+
+    // Exposer globalement pour intégration
+    window.GroupsTriptycheInterface = {
+      state,
+      render,
+      addRegroupement,
+      generateGroups
+    };
+  </script>
+</body>
+</html>

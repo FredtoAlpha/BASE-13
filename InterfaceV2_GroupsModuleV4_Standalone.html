@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Module Groupes V4 - Refonte Ergonomique</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background-color: #f9fafb;
+      color: #111827;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .animate-slide-in {
+      animation: slideIn 0.3s ease-out;
+    }
+
+    .scrollbar-custom::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .scrollbar-custom::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 10px;
+    }
+
+    .scrollbar-custom::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 10px;
+    }
+
+    .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+
+    /* Badges */
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .badge-todo {
+      background-color: #f3f4f6;
+      color: #374151;
+    }
+
+    .badge-in-progress {
+      background-color: #dbeafe;
+      color: #1e40af;
+    }
+
+    .badge-validated {
+      background-color: #dcfce7;
+      color: #166534;
+    }
+
+    /* Cartes */
+    .scenario-card {
+      padding: 1.5rem;
+      border-radius: 0.75rem;
+      border: 2px solid #e5e7eb;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .scenario-card.selected {
+      border-color: #4f46e5;
+      background-color: #f0f4ff;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+
+    .scenario-card:hover:not(.disabled) {
+      border-color: #a5b4fc;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    .scenario-card.disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Layout principal */
+    #groups-module-v4 {
+      width: 100%;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      background-color: #ffffff;
+      border-bottom: 1px solid #e5e7eb;
+      padding: 1rem 2rem;
+      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    }
+
+    .header-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .header-title h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .header-title p {
+      font-size: 0.875rem;
+      color: #6b7280;
+      margin-top: 0.25rem;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .progress-indicator {
+      font-size: 0.875rem;
+      color: #6b7280;
+    }
+
+    .close-btn {
+      padding: 0.5rem;
+      background-color: transparent;
+      border: none;
+      cursor: pointer;
+      border-radius: 0.5rem;
+      transition: background-color 0.2s;
+    }
+
+    .close-btn:hover {
+      background-color: #f3f4f6;
+    }
+
+    /* Container principal */
+    .main-container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Colonnes */
+    .phases-column {
+      width: 320px;
+      background: linear-gradient(to bottom, #f8fafc, #f1f5f9);
+      border-right: 1px solid #e5e7eb;
+      overflow-y: auto;
+      padding: 1rem;
+    }
+
+    .content-column {
+      flex: 1;
+      overflow-y: auto;
+      padding: 2rem;
+    }
+
+    .summary-column {
+      width: 320px;
+      background-color: #ffffff;
+      border-left: 1px solid #e5e7eb;
+      overflow-y: auto;
+      padding: 1.5rem;
+    }
+
+    /* Phase item */
+    .phase-item {
+      padding: 1rem;
+      border-left: 4px solid #d1d5db;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 0.5rem;
+    }
+
+    .phase-item:hover {
+      background-color: #ffffff;
+    }
+
+    .phase-item.active {
+      background-color: #ffffff;
+      border-left-color: #4f46e5;
+      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    }
+
+    .phase-item.completed {
+      border-left-color: #22c55e;
+    }
+
+    .phase-number {
+      width: 2rem;
+      height: 2rem;
+      border-radius: 9999px;
+      background-color: #e0e7ff;
+      color: #4f46e5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      font-size: 0.875rem;
+      flex-shrink: 0;
+    }
+
+    .phase-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .phase-title {
+      font-weight: 600;
+      color: #111827;
+      font-size: 0.875rem;
+    }
+
+    .phase-description {
+      color: #4b5563;
+      margin-top: 0.25rem;
+      font-size: 0.75rem;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+    }
+
+    .modal-overlay.visible {
+      display: flex;
+    }
+
+    .modal-content {
+      background-color: #ffffff;
+      border-radius: 1rem;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+      max-width: 56rem;
+      width: 100%;
+      margin: 1rem;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 2rem;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .modal-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #111827;
+    }
+
+    .modal-body {
+      padding: 2rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+    }
+
+    .modal-footer {
+      display: flex;
+      gap: 1rem;
+      justify-content: flex-end;
+      padding: 2rem;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    /* Boutons */
+    .btn {
+      padding: 0.5rem 1.5rem;
+      border-radius: 0.5rem;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background-color: #4f46e5;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background-color: #4338ca;
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background-color: transparent;
+      color: #374151;
+      border: 1px solid #d1d5db;
+    }
+
+    .btn-secondary:hover {
+      background-color: #f9fafb;
+    }
+
+    .btn-full {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    /* Inputs */
+    input[type="text"],
+    input[type="number"] {
+      width: 100%;
+      padding: 0.5rem 1rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.5rem;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input[type="text"]:focus,
+    input[type="number"]:focus {
+      border-color: #4f46e5;
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+    }
+
+    /* Checkboxes */
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .checkbox-label:hover {
+      background-color: #f9fafb;
+    }
+
+    input[type="checkbox"] {
+      cursor: pointer;
+    }
+
+    /* Sections */
+    .section-title {
+      font-size: 1.875rem;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 0.5rem;
+    }
+
+    .section-subtitle {
+      color: #4b5563;
+      margin-bottom: 2rem;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    .grid-1 {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+    }
+
+    .info-box {
+      background-color: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 0.5rem;
+      padding: 1.5rem;
+    }
+
+    .info-box-title {
+      font-weight: 600;
+      color: #1e3a8a;
+      margin-bottom: 0.75rem;
+    }
+
+    .info-box-content {
+      font-size: 0.875rem;
+      color: #1e40af;
+    }
+
+    .info-box-content ul {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      list-style: none;
+    }
+
+    .info-box-content li {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .info-box-content i {
+      color: #22c55e;
+    }
+
+    /* Responsive */
+    @media (max-width: 1200px) {
+      .phases-column {
+        width: 256px;
+      }
+      .summary-column {
+        width: 288px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .phases-column,
+      .summary-column {
+        display: none;
+      }
+      .content-column {
+        padding: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="groups-module-v4">
+    <!-- Header -->
+    <div class="header">
+      <div class="header-content">
+        <div class="header-title">
+          <h1>Module Groupes</h1>
+          <p>Configuration guidée en 3 phases</p>
+        </div>
+        <div class="header-controls">
+          <div class="progress-indicator">
+            Phase <span id="current-phase">1</span> sur 3
+          </div>
+          <button id="close-module" class="close-btn">
+            <i class="fas fa-times" style="font-size: 1.25rem; color: #6b7280;"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="main-container">
+      <!-- Colonne Phases -->
+      <div class="phases-column scrollbar-custom">
+        <h2 style="font-size: 0.875rem; font-weight: 600; color: #111827; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.05em;">Phases</h2>
+        <div id="phases-list"></div>
+      </div>
+
+      <!-- Colonne Contenu -->
+      <div class="content-column scrollbar-custom">
+        <div id="content-container" style="max-width: 56rem; margin: 0 auto;"></div>
+      </div>
+
+      <!-- Colonne Récapitulatif -->
+      <div class="summary-column scrollbar-custom">
+        <h2 style="font-size: 0.875rem; font-weight: 600; color: #111827; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.05em;">Récapitulatif</h2>
+        <div id="summary-content"></div>
+        <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid #e5e7eb;">
+          <button id="continue-button" class="btn btn-primary btn-full">
+            Continuer
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal-new-association" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title">Nouvelle association</h2>
+        <button class="modal-close close-btn">
+          <i class="fas fa-times" style="font-size: 1.25rem; color: #6b7280;"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div>
+          <h3 style="font-weight: 600; color: #111827; margin-bottom: 1rem;">Sélectionner les classes</h3>
+          <input type="text" id="class-search" placeholder="Rechercher une classe..." style="margin-bottom: 1rem;">
+          <div id="classes-selector" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 16rem; overflow-y: auto;"></div>
+        </div>
+        <div>
+          <h3 style="font-weight: 600; color: #111827; margin-bottom: 1rem;">Construction de la passe</h3>
+          <div style="margin-bottom: 1.5rem;">
+            <label style="display: block; font-size: 0.875rem; font-weight: 500; color: #374151; margin-bottom: 0.5rem;">Nom de la passe</label>
+            <input type="text" id="pass-name" placeholder="ex: Passe A">
+          </div>
+          <div style="margin-bottom: 1.5rem;">
+            <label style="display: block; font-size: 0.875rem; font-weight: 500; color: #374151; margin-bottom: 0.5rem;">Nombre de groupes</label>
+            <input type="number" id="num-groups" min="2" max="10" value="3">
+          </div>
+          <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 0.5rem; padding: 1rem; margin-bottom: 1.5rem;">
+            <h4 style="font-weight: 600; color: #1e3a8a; margin-bottom: 0.5rem;">Classes sélectionnées</h4>
+            <div id="selected-classes-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
+              <p style="font-size: 0.875rem; color: #6b7280;">Aucune classe sélectionnée</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-close btn btn-secondary">Annuler</button>
+        <button id="validate-pass-button" class="btn btn-primary">Valider</button>
+      </div>
+    </div>
+  </div>
+
+  <?!= include('InterfaceV2_GroupsModuleV4_Script') ?>
+
+  <!-- ✅ Charger l'algorithme de distribution V4 AVANT le triptyque -->
+  <?!= include('GroupsAlgorithmV4_Distribution') ?>
+
+  <!-- ✅ FIX #2 : Charger le triptyque -->
+  <?!= include('InterfaceV4_Triptyque_Logic') ?>
+
+  <!-- ========== EXPOSITION GLOBALE DE GROUPS_MODULE_V4_DATA (DÉVELOPPEMENT) ========== -->
+  <script>
+  // Pour le développement/test: Charger les données depuis le serveur ou utiliser des données fictives
+  (function() {
+    const windowRef = typeof globalThis !== 'undefined' ? globalThis : window;
+
+    // Helper pour données de test
+    windowRef.GROUPS_MODULE_V4_DATA = {
+      classes: [
+        { id: '6°1', label: '6°1', studentCount: 24 },
+        { id: '6°2', label: '6°2', studentCount: 25 },
+        { id: '5°1', label: '5°1', studentCount: 23 },
+        { id: '5°2', label: '5°2', studentCount: 24 }
+      ],
+      eleves: {
+        '6°1': [
+          { id: '6-1-001', nom: 'Dupont', prenom: 'Anne', classe: '6°1', lv2: 'ESP', option: 'CHAV', sexe: 'F' },
+          { id: '6-1-002', nom: 'Martin', prenom: 'Baptiste', classe: '6°1', lv2: 'ITA', option: 'CHAV', sexe: 'M' }
+        ],
+        '6°2': [],
+        '5°1': [],
+        '5°2': []
+      },
+      scenarios: {
+        needs: { id: 'needs', title: 'Besoins', description: 'Équilibrer les besoins' },
+        lv2: { id: 'lv2', title: 'LV2', description: 'Rassembler selon LV2' },
+        options: { id: 'options', title: 'Options', description: 'Regroupements d\'options' }
+      },
+      modes: {
+        heterogeneous: { id: 'heterogeneous', title: 'Hétérogène', description: 'Groupes équilibrés' },
+        homogeneous: { id: 'homogeneous', title: 'Homogène', description: 'Groupes homogènes' }
+      },
+      metadata: { version: '4.0', classCount: 4, studentCount: 2, source: 'Standalone Test' }
+    };
+
+    console.log('✅ GROUPS_MODULE_V4_DATA prêtes (mode test/développement)');
+  })();
+  </script>
+
+  <script>
+    // ✅ Initialiser le triptyque si l'élément existe
+    (function() {
+      function initTriptych() {
+        const root = document.querySelector('#groups-module-v4');
+        if (root && typeof window.TriptychGroupsModule === 'function') {
+          // ✅ Créer l'instance triptyque
+          window.__triptychModuleInstance = new window.TriptychGroupsModule(root);
+          console.log('✅ Triptyque initialisé avec succès');
+
+          // ✅ Masquer le vieux bouton "Nouvelle association"
+          const oldButton = document.getElementById('new-association-button');
+          if (oldButton) {
+            oldButton.style.display = 'none';
+            console.log('✅ Ancien bouton "Nouvelle association" masqué');
+          }
+
+          // ✅ Attacher le gestionnaire d'événement pour la génération
+          if (!root.hasAttribute('data-triptyque-listeners-attached')) {
+            root.addEventListener('groups:generate', function handleGroupsGenerate(event) {
+              const payload = event.detail;
+              console.log('🎯 Événement groups:generate reçu:', payload);
+
+              if (!window.GroupsAlgorithmV4) {
+                console.error('❌ GroupsAlgorithmV4 non disponible');
+                return;
+              }
+
+              if (!window.STATE || !window.STATE.classesData) {
+                console.error('❌ Données élèves non disponibles');
+                return;
+              }
+
+              const algo = new window.GroupsAlgorithmV4();
+              const results = [];
+
+              payload.forEach((regroupement) => {
+                const students = [];
+                regroupement.classes.forEach((className) => {
+                  const classData = window.STATE.classesData[className];
+                  if (classData && classData.eleves) {
+                    students.push(...classData.eleves);
+                  }
+                });
+
+                if (students.length === 0) {
+                  console.warn(`⚠️ Aucun élève trouvé pour ${regroupement.name}`);
+                  return;
+                }
+
+                const result = algo.generateGroups({
+                  students,
+                  groupCount: regroupement.groupCount,
+                  scenario: window.__triptychModuleInstance?.state?.scenario || 'needs',
+                  distributionMode: window.__triptychModuleInstance?.state?.distributionMode || 'heterogeneous'
+                });
+
+                results.push({
+                  regroupement: regroupement.name,
+                  result
+                });
+              });
+
+              console.log('✅ Génération terminée:', results);
+              const resultsEvent = new CustomEvent('groups:generated', { detail: results });
+              document.dispatchEvent(resultsEvent);
+            });
+
+            root.setAttribute('data-triptyque-listeners-attached', 'true');
+            console.log('✅ Gestionnaire groups:generate attaché');
+          }
+        } else {
+          if (!root) {
+            console.warn('⚠️ Élément #groups-module-v4 introuvable');
+          }
+          if (typeof window.TriptychGroupsModule !== 'function') {
+            console.warn('⚠️ TriptychGroupsModule non chargé');
+          }
+        }
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initTriptych);
+      } else {
+        initTriptych();
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TEST - Module Groupes V4 Standalone</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f8fafc;
+    }
+
+    #groups-module-v4 {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .test-banner {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+      color: #1e293b;
+      padding: 8px 20px;
+      font-size: 13px;
+      font-weight: 700;
+      text-align: center;
+      z-index: 9999;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    #groups-module-v4 {
+      padding-top: 36px; /* Espace pour la bannière de test */
+    }
+  </style>
+</head>
+<body>
+  <!-- Bannière de test -->
+  <div class="test-banner">
+    🧪 MODE TEST STANDALONE - Données simulées chargées
+  </div>
+
+  <!-- Conteneur du module -->
+  <div id="groups-module-v4"></div>
+
+  <!-- Scripts -->
+  <script>
+    // ========== DONNÉES DE TEST SIMULÉES ==========
+
+    // Simulation de window.STATE avec des données de test
+    window.STATE = {
+      classesData: {
+        '4A': {
+          nom: '4A',
+          eleves: [
+            { id: '4A-001', nom: 'Dupont', prenom: 'Marie', sexe: 'F', classe: '4A', scoreM: 14.5, scoreF: 15.2, com: 3, tra: 4, part: 5, abs: 2 },
+            { id: '4A-002', nom: 'Martin', prenom: 'Lucas', sexe: 'M', classe: '4A', scoreM: 12.8, scoreF: 13.5, com: 4, tra: 3, part: 4, abs: 1 },
+            { id: '4A-003', nom: 'Bernard', prenom: 'Emma', sexe: 'F', classe: '4A', scoreM: 16.2, scoreF: 17.1, com: 5, tra: 5, part: 5, abs: 0 },
+            { id: '4A-004', nom: 'Petit', prenom: 'Hugo', sexe: 'M', classe: '4A', scoreM: 11.5, scoreF: 12.0, com: 3, tra: 3, part: 3, abs: 3 },
+            { id: '4A-005', nom: 'Durand', prenom: 'Léa', sexe: 'F', classe: '4A', scoreM: 13.7, scoreF: 14.8, com: 4, tra: 4, part: 4, abs: 1 },
+            { id: '4A-006', nom: 'Moreau', prenom: 'Tom', sexe: 'M', classe: '4A', scoreM: 15.3, scoreF: 14.9, com: 4, tra: 5, part: 5, abs: 1 },
+            { id: '4A-007', nom: 'Simon', prenom: 'Chloé', sexe: 'F', classe: '4A', scoreM: 10.8, scoreF: 11.5, com: 2, tra: 3, part: 3, abs: 4 },
+            { id: '4A-008', nom: 'Laurent', prenom: 'Nathan', sexe: 'M', classe: '4A', scoreM: 14.0, scoreF: 13.2, com: 4, tra: 4, part: 4, abs: 2 }
+          ]
+        },
+        '4B': {
+          nom: '4B',
+          eleves: [
+            { id: '4B-001', nom: 'Lefebvre', prenom: 'Clara', sexe: 'F', classe: '4B', scoreM: 13.9, scoreF: 15.0, com: 4, tra: 4, part: 5, abs: 1 },
+            { id: '4B-002', nom: 'Roux', prenom: 'Maxime', sexe: 'M', classe: '4B', scoreM: 11.2, scoreF: 12.4, com: 3, tra: 3, part: 3, abs: 2 },
+            { id: '4B-003', nom: 'Fournier', prenom: 'Inès', sexe: 'F', classe: '4B', scoreM: 15.8, scoreF: 16.5, com: 5, tra: 5, part: 5, abs: 0 },
+            { id: '4B-004', nom: 'Girard', prenom: 'Théo', sexe: 'M', classe: '4B', scoreM: 12.5, scoreF: 13.1, com: 3, tra: 4, part: 4, abs: 2 },
+            { id: '4B-005', nom: 'Bonnet', prenom: 'Manon', sexe: 'F', classe: '4B', scoreM: 14.3, scoreF: 15.7, com: 4, tra: 4, part: 5, abs: 1 },
+            { id: '4B-006', nom: 'Rousseau', prenom: 'Antoine', sexe: 'M', classe: '4B', scoreM: 13.1, scoreF: 12.8, com: 4, tra: 3, part: 4, abs: 3 },
+            { id: '4B-007', nom: 'Garcia', prenom: 'Camille', sexe: 'F', classe: '4B', scoreM: 16.5, scoreF: 17.2, com: 5, tra: 5, part: 5, abs: 0 },
+            { id: '4B-008', nom: 'Lambert', prenom: 'Arthur', sexe: 'M', classe: '4B', scoreM: 10.9, scoreF: 11.3, com: 2, tra: 3, part: 3, abs: 4 }
+          ]
+        },
+        '4C': {
+          nom: '4C',
+          eleves: [
+            { id: '4C-001', nom: 'Fontaine', prenom: 'Jade', sexe: 'F', classe: '4C', scoreM: 12.7, scoreF: 14.2, com: 3, tra: 4, part: 4, abs: 2 },
+            { id: '4C-002', nom: 'Chevalier', prenom: 'Louis', sexe: 'M', classe: '4C', scoreM: 15.1, scoreF: 14.5, com: 4, tra: 5, part: 5, abs: 1 },
+            { id: '4C-003', nom: 'Garnier', prenom: 'Zoé', sexe: 'F', classe: '4C', scoreM: 11.4, scoreF: 12.9, com: 3, tra: 3, part: 4, abs: 3 },
+            { id: '4C-004', nom: 'Robin', prenom: 'Mathis', sexe: 'M', classe: '4C', scoreM: 13.8, scoreF: 13.0, com: 4, tra: 4, part: 4, abs: 1 },
+            { id: '4C-005', nom: 'Muller', prenom: 'Sarah', sexe: 'F', classe: '4C', scoreM: 16.7, scoreF: 17.5, com: 5, tra: 5, part: 5, abs: 0 },
+            { id: '4C-006', nom: 'Blanc', prenom: 'Alexandre', sexe: 'M', classe: '4C', scoreM: 12.3, scoreF: 11.8, com: 3, tra: 3, part: 3, abs: 2 },
+            { id: '4C-007', nom: 'Guerin', prenom: 'Lisa', sexe: 'F', classe: '4C', scoreM: 14.9, scoreF: 16.0, com: 4, tra: 5, part: 5, abs: 1 },
+            { id: '4C-008', nom: 'Boyer', prenom: 'Enzo', sexe: 'M', classe: '4C', scoreM: 10.5, scoreF: 10.9, com: 2, tra: 2, part: 3, abs: 5 }
+          ]
+        }
+      }
+    };
+
+    // Simulation de GROUPS_MODULE_V4_DATA (optionnel, car on utilise STATE)
+    window.GROUPS_MODULE_V4_DATA = {
+      classes: [
+        { id: '4A', label: '4A', students: 8 },
+        { id: '4B', label: '4B', students: 8 },
+        { id: '4C', label: '4C', students: 8 }
+      ],
+      timestamp: new Date().toISOString()
+    };
+
+    console.log('✅ Données de test chargées:', {
+      classes: Object.keys(window.STATE.classesData).length,
+      totalStudents: Object.values(window.STATE.classesData).reduce((sum, c) => sum + c.eleves.length, 0)
+    });
+  </script>
+
+  <!-- Chargement des scripts du module dans l'ORDRE CORRECT -->
+  <script src="GroupsAlgorithmV4_Distribution.js"></script>
+  <script src="InterfaceV4_Triptyque_Logic.js"></script>
+
+  <script>
+    // ========== INITIALISATION MANUELLE DU MODULE ==========
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log('🚀 Initialisation du test standalone...');
+
+      // Vérifier que les scripts sont chargés
+      if (!window.GroupsAlgorithmV4) {
+        console.error('❌ GroupsAlgorithmV4 non chargé !');
+        alert('Erreur : GroupsAlgorithmV4.js n\'a pas été chargé correctement.');
+        return;
+      }
+
+      if (!window.TriptychGroupsModule) {
+        console.error('❌ TriptychGroupsModule non chargé !');
+        alert('Erreur : InterfaceV4_Triptyque_Logic.js n\'a pas été chargé correctement.');
+        return;
+      }
+
+      console.log('✅ Scripts chargés avec succès');
+      console.log('✅ GroupsAlgorithmV4:', typeof window.GroupsAlgorithmV4);
+      console.log('✅ TriptychGroupsModule:', typeof window.TriptychGroupsModule);
+
+      // ✅ L'AUTO-INITIALISATION de InterfaceV4_Triptyque_Logic.js a déjà créé l'instance
+      // sur #groups-module-v4. On vérifie qu'elle existe.
+      const moduleRoot = document.querySelector('#groups-module-v4');
+
+      if (!moduleRoot) {
+        console.error('❌ Élément #groups-module-v4 non trouvé !');
+        return;
+      }
+
+      if (!window.__triptychModuleInstance) {
+        console.error('❌ Instance TriptychGroupsModule non créée par auto-init !');
+        return;
+      }
+
+      console.log('✅ Instance TriptychGroupsModule auto-initialisée');
+      console.log('✅ Root element:', moduleRoot);
+
+      // ✅ ATTACHER LE EVENT LISTENER pour groups:generate
+      // C'est ce que fait normalement InterfaceV2_GroupsModuleV4_Script.js
+      // On attache sur #groups-module-v4 car c'est là que l'instance émet les événements
+      if (!moduleRoot.hasAttribute('data-generate-listener-attached')) {
+        moduleRoot.addEventListener('groups:generate', (event) => {
+          console.log('🚀 Event groups:generate reçu avec payload:', event.detail);
+
+          // Vérifier que l'algorithme est disponible
+          if (!window.GroupsAlgorithmV4 || typeof window.GroupsAlgorithmV4 !== 'function') {
+            console.error('❌ GroupsAlgorithmV4 non disponible !');
+            moduleRoot.dispatchEvent(new CustomEvent('groups:error', {
+              detail: { message: 'Algorithme non disponible' }
+            }));
+            return;
+          }
+
+          try {
+            const payload = event.detail;
+            const algo = new window.GroupsAlgorithmV4();
+
+            console.log('📊 Traitement de', payload.regroupements.length, 'regroupement(s)');
+
+            // Générer les groupes pour chaque regroupement
+            const allResults = [];
+            for (const regroupement of payload.regroupements) {
+              console.log('  📋 Regroupement:', regroupement.name, '- Classes:', regroupement.classes, '- Groupes:', regroupement.groupCount);
+
+              // Récupérer les élèves depuis window.STATE.classesData
+              const students = [];
+              for (const className of regroupement.classes) {
+                if (window.STATE?.classesData?.[className]?.eleves) {
+                  students.push(...window.STATE.classesData[className].eleves);
+                  console.log('    ✅ Classe', className, ':', window.STATE.classesData[className].eleves.length, 'élèves');
+                } else {
+                  console.warn('    ⚠️ Classe', className, ': aucun élève trouvé');
+                }
+              }
+
+              console.log('  👥 Total élèves:', students.length);
+
+              if (students.length === 0) {
+                console.warn('  ⚠️ Aucun élève à répartir pour ce regroupement');
+                continue;
+              }
+
+              // Appeler l'algorithme
+              const results = algo.generateGroups(
+                students,
+                regroupement.groupCount,
+                payload.scenario || 'needs',
+                payload.mode || 'heterogeneous'
+              );
+
+              console.log('  ✅ Généré:', results.length, 'groupes');
+              allResults.push({
+                regroupementId: regroupement.id,
+                regroupementName: regroupement.name,
+                groups: results
+              });
+            }
+
+            // Dispatcher les résultats
+            console.log('✅ Génération terminée, dispatch groups:generated');
+            moduleRoot.dispatchEvent(new CustomEvent('groups:generated', {
+              detail: {
+                success: allResults.length > 0,
+                results: allResults,
+                scenario: payload.scenario,
+                mode: payload.mode
+              }
+            }));
+
+          } catch (error) {
+            console.error('❌ Erreur lors de la génération:', error);
+            moduleRoot.dispatchEvent(new CustomEvent('groups:error', {
+              detail: { message: error.message, stack: error.stack }
+            }));
+          }
+        });
+
+        moduleRoot.setAttribute('data-generate-listener-attached', 'true');
+        console.log('✅ Event listener groups:generate attaché');
+      }
+
+      console.log('');
+      console.log('✨ Module V4 prêt pour les tests !');
+      console.log('📌 L\'interface devrait être visible ci-dessous');
+      console.log('🧪 Configurez un regroupement et cliquez "Générer" pour tester');
+    });
+  </script>
+</body>
+</html>

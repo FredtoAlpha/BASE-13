@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Module Groupes V4 - Refonte Ergonomique</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <link href="https://cdn.tailwindcss.com" rel="stylesheet">
+  <style>
+    /* Animations et transitions */
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .animate-slide-in {
+      animation: slideIn 0.3s ease-out;
+    }
+
+    .animate-fade-in {
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    /* Scrollbar personnalisée */
+    .scrollbar-custom::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .scrollbar-custom::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 10px;
+    }
+
+    .scrollbar-custom::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 10px;
+    }
+
+    .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+
+    /* Badges d'état */
+    .badge-todo {
+      @apply bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-semibold;
+    }
+
+    .badge-in-progress {
+      @apply bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-semibold;
+    }
+
+    .badge-validated {
+      @apply bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-semibold;
+    }
+
+    /* Cartes de scénario */
+    .scenario-card {
+      @apply p-6 rounded-xl border-2 border-gray-200 cursor-pointer transition-all duration-200 hover:shadow-lg;
+    }
+
+    .scenario-card.selected {
+      @apply border-indigo-500 bg-indigo-50 shadow-lg;
+    }
+
+    .scenario-card:hover:not(.disabled) {
+      @apply border-indigo-300 shadow-md;
+    }
+
+    .scenario-card.disabled {
+      @apply opacity-50 cursor-not-allowed;
+    }
+
+    /* Colonne des phases */
+    .phases-column {
+      @apply w-80 bg-gradient-to-b from-slate-50 to-slate-100 border-r border-gray-200 overflow-y-auto scrollbar-custom;
+    }
+
+    /* Contenu principal */
+    .content-column {
+      @apply flex-1 overflow-y-auto scrollbar-custom p-8;
+    }
+
+    /* Colonne récapitulatif */
+    .summary-column {
+      @apply w-80 bg-white border-l border-gray-200 overflow-y-auto scrollbar-custom p-6;
+    }
+
+    /* Phase item */
+    .phase-item {
+      @apply p-4 border-l-4 border-gray-300 cursor-pointer transition-all duration-200 hover:bg-white;
+    }
+
+    .phase-item.active {
+      @apply bg-white border-l-indigo-500 shadow-sm;
+    }
+
+    .phase-item.completed {
+      @apply border-l-green-500;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50;
+    }
+
+    .modal-content {
+      @apply bg-white rounded-2xl shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto;
+    }
+
+    /* Responsive */
+    @media (max-width: 1200px) {
+      .phases-column {
+        @apply w-64;
+      }
+      .summary-column {
+        @apply w-72;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .phases-column,
+      .summary-column {
+        @apply hidden;
+      }
+    }
+  </style>
+</head>
+<body class="bg-gray-50">
+  <div id="groups-module-v4" class="w-full h-screen flex flex-col">
+    <!-- Header -->
+    <div class="bg-white border-b border-gray-200 px-8 py-4 shadow-sm">
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900">Module Groupes</h1>
+          <p class="text-sm text-gray-600 mt-1">Configuration guidée en 3 phases</p>
+        </div>
+        <div class="flex items-center gap-4">
+          <div id="progress-indicator" class="text-sm text-gray-600">
+            Phase <span id="current-phase">1</span> sur 3
+          </div>
+          <button id="close-module" class="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+            <i class="fas fa-times text-gray-600"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="flex flex-1 overflow-hidden">
+      <!-- Colonne Phases (Gauche) -->
+      <div class="phases-column">
+        <div class="p-4">
+          <h2 class="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wide">Phases</h2>
+          <div id="phases-list" class="space-y-2">
+            <!-- Phases générées dynamiquement -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Colonne Contenu (Centre) -->
+      <div class="content-column">
+        <div id="content-container" class="max-w-5xl mx-auto">
+          <!-- Contenu des phases généré dynamiquement -->
+        </div>
+      </div>
+
+      <!-- Colonne Récapitulatif (Droite) -->
+      <div class="summary-column">
+        <h2 class="text-sm font-semibold text-gray-900 mb-4 uppercase tracking-wide">Récapitulatif</h2>
+        
+        <div id="summary-content" class="space-y-6">
+          <!-- Résumé dynamique -->
+        </div>
+
+        <div class="mt-8 pt-6 border-t border-gray-200">
+          <button id="continue-button" class="w-full px-4 py-3 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            Continuer
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Nouvelle Association -->
+  <div id="modal-new-association" class="hidden modal-overlay">
+    <div class="modal-content">
+      <div class="p-8">
+        <div class="flex items-center justify-between mb-6">
+          <h2 class="text-2xl font-bold text-gray-900">Nouvelle association</h2>
+          <button class="modal-close p-2 hover:bg-gray-100 rounded-lg">
+            <i class="fas fa-times text-gray-600"></i>
+          </button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-8">
+          <!-- Sélecteur de classes -->
+          <div>
+            <h3 class="font-semibold text-gray-900 mb-4">Sélectionner les classes</h3>
+            <div class="mb-4">
+              <input type="text" id="class-search" placeholder="Rechercher une classe..." class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div id="classes-selector" class="space-y-2 max-h-64 overflow-y-auto scrollbar-custom">
+              <!-- Classes listées dynamiquement -->
+            </div>
+          </div>
+
+          <!-- Construction de la passe -->
+          <div>
+            <h3 class="font-semibold text-gray-900 mb-4">Construction de la passe</h3>
+            
+            <div class="mb-6">
+              <label class="block text-sm font-medium text-gray-700 mb-2">Nom de la passe</label>
+              <input type="text" id="pass-name" placeholder="ex: Passe A" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+
+            <div class="mb-6">
+              <label class="block text-sm font-medium text-gray-700 mb-2">Nombre de groupes</label>
+              <input type="number" id="num-groups" min="2" max="10" value="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <h4 class="font-semibold text-blue-900 mb-2">Classes sélectionnées</h4>
+              <div id="selected-classes-list" class="space-y-2">
+                <p class="text-sm text-gray-600">Aucune classe sélectionnée</p>
+              </div>
+            </div>
+
+            <div id="pass-validation-info" class="text-sm text-gray-600 mb-6">
+              <!-- Info validation -->
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-4 justify-end mt-8 pt-6 border-t border-gray-200">
+          <button class="modal-close px-6 py-2 border border-gray-300 rounded-lg text-gray-700 font-semibold hover:bg-gray-50 transition-colors">
+            Annuler
+          </button>
+          <button id="validate-pass-button" class="px-6 py-2 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            Valider
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
