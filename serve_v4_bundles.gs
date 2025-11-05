@@ -50,17 +50,14 @@ function doGet(e) {
       );
     }
 
-    // Récupérer le contenu du fichier (depuis ScriptProperties)
-    const scriptProperties = PropertiesService.getScriptProperties();
-    let fileContent = scriptProperties.getProperty('V4_' + fileName);
-
-    // ✨ AUTO-CHARGEMENT: Si le fichier n'est pas dans ScriptProperties, le charger automatiquement
+    // Charger dynamiquement le contenu (connexion directe aux fichiers du projet)
+    const fileContent = loadBundleFromProject(fileName);
     if (!fileContent) {
-      console.warn('[WARNING] Fichier non trouve dans ScriptProperties: ' + fileName);
+      console.error('[DIRECT-LOAD] ❌ Fichier introuvable: ' + fileName);
       return HtmlService.createHtmlOutput(
         '[ERREUR] Erreur 404: Fichier non trouve<br>' +
         'Fichier: ' + fileName + '<br>' +
-        'Solution: Executer uploadV4Bundles() pour charger les fichiers'
+        'Verification: Le fichier existe-t-il dans le projet Apps Script ?'
       );
     }
 
@@ -118,11 +115,11 @@ function loadBundleFromProject(fileName) {
  * Mais conservée pour compatibilité
  */
 function uploadV4Bundles() {
-  console.log('[PACKAGE] Chargement des bundles V4...');
+  console.log('[PACKAGE] Chargement des bundles V4 (mode compatibilite)...');
 
   const scriptProperties = PropertiesService.getScriptProperties();
 
-  // Liste des fichiers à charger (depuis Google Drive ou copier/coller le contenu)
+  // Liste des fichiers à charger directement depuis le projet
   const files = [
     'InterfaceV4_Triptyque_Logic.js',
     'GroupsAlgorithmV4_Distribution.js',
@@ -131,24 +128,19 @@ function uploadV4Bundles() {
 
   files.forEach(fileName => {
     try {
-      // [!] IMPORTANT: Le contenu doit etre fourni manuellement ou depuis Drive
-      // Pour l'instant, on va creer un placeholder
-
-      const content = getFileContentFromDrive(fileName);
+      const content = loadBundleFromProject(fileName);
       if (content) {
         scriptProperties.setProperty('V4_' + fileName, content);
-        console.log('[OK] ' + fileName + ' charge (' + content.length + ' bytes)');
+        console.log('[OK] ' + fileName + ' synchronise (' + content.length + ' bytes)');
       } else {
-        console.warn('[WARNING] ' + fileName + ' introuvable - placeholder utilise');
-        const placeholder = '// [ERREUR] PLACEHOLDER: ' + fileName + ' non charge\nconsole.error("Fichier ' + fileName + ' manquant");';
-        scriptProperties.setProperty('V4_' + fileName, placeholder);
+        console.warn('[WARNING] ' + fileName + ' introuvable - aucune donnee enregistree');
       }
     } catch (error) {
       console.error('[ERREUR] Erreur chargement ' + fileName + ':', error);
     }
   });
 
-  console.log('[OK] Bundles V4 charges');
+  console.log('[OK] Synchronisation termine - la connexion directe reste prioritaire');
 }
 
 /**
@@ -197,9 +189,8 @@ function getWebAppUrl() {
  * Verifie que tout fonctionne
  */
 function testV4Endpoint() {
-  console.log('[TEST] Test du endpoint V4...');
+  console.log('[TEST] Test du endpoint V4 (connexion directe)...');
 
-  const scriptProperties = PropertiesService.getScriptProperties();
   const files = [
     'InterfaceV4_Triptyque_Logic.js',
     'GroupsAlgorithmV4_Distribution.js',
@@ -207,19 +198,18 @@ function testV4Endpoint() {
   ];
 
   files.forEach(fileName => {
-    const content = scriptProperties.getProperty('V4_' + fileName);
+    const content = loadBundleFromProject(fileName);
     if (content) {
-      console.log('[OK] ' + fileName + ': ' + content.length + ' bytes pret');
+      console.log('[OK] ' + fileName + ': ' + content.length + ' bytes disponibles');
     } else {
-      console.warn('[WARNING] ' + fileName + ': MANQUANT - Executer uploadV4Bundles()');
+      console.warn('[WARNING] ' + fileName + ': introuvable - verifier la presence du fichier dans le projet');
     }
   });
 
-  console.log('\n[NOTE] Prochaines etapes:');
+  console.log('\n[NOTE] Deploiement:');
   console.log('1. Deployer ce script en tant que Web App');
-  console.log('2. Executer uploadV4Bundles() pour charger les fichiers');
-  console.log('3. Executer getWebAppUrl() pour obtenir l\'URL');
-  console.log('4. Utiliser l\'URL dans le HTML pour charger les bundles V4');
+  console.log('2. Recuperer l\'URL avec getWebAppUrl()');
+  console.log('3. Utiliser l\'URL directe dans l\'interface V4');
 }
 
 /**
@@ -238,7 +228,7 @@ function setV4BundleManually(fileName, content) {
  * AVANTAGE: Plus besoin d'exécuter uploadV4Bundles() manuellement !
  */
 function autoInitV4Bundles() {
-  console.log('[AUTO-INIT] 🚀 Initialisation automatique des bundles V4...');
+  console.log('[AUTO-INIT] 🚀 Verification automatique des bundles V4 (connexion directe)...');
 
   const scriptProperties = PropertiesService.getScriptProperties();
   const files = [
@@ -247,37 +237,29 @@ function autoInitV4Bundles() {
     'InterfaceV2_GroupsModuleV4_Script.js'
   ];
 
-  let loadedCount = 0;
-  let alreadyLoadedCount = 0;
+  let syncedCount = 0;
+  let directCount = 0;
 
   files.forEach(fileName => {
     try {
-      // Vérifier si le fichier est déjà chargé
-      const existing = scriptProperties.getProperty('V4_' + fileName);
-      if (existing && existing.length > 100) {
-        console.log('[AUTO-INIT] ✅ ' + fileName + ' déjà chargé (' + existing.length + ' bytes)');
-        alreadyLoadedCount++;
-        return;
-      }
-
-      // Charger le fichier depuis le projet
       const content = loadBundleFromProject(fileName);
       if (content) {
+        directCount++;
         scriptProperties.setProperty('V4_' + fileName, content);
-        console.log('[AUTO-INIT] ✅ ' + fileName + ' chargé automatiquement (' + content.length + ' bytes)');
-        loadedCount++;
+        syncedCount++;
+        console.log('[AUTO-INIT] ✅ ' + fileName + ' disponible et synchronise (' + content.length + ' bytes)');
       } else {
-        console.warn('[AUTO-INIT] ⚠️ ' + fileName + ' non trouvé - sera chargé au premier accès');
+        console.warn('[AUTO-INIT] ⚠️ ' + fileName + ' introuvable - verifier le projet');
       }
     } catch (error) {
       console.error('[AUTO-INIT] ❌ Erreur chargement ' + fileName + ':', error);
     }
   });
 
-  console.log('[AUTO-INIT] 🎉 Terminé: ' + loadedCount + ' fichiers chargés, ' + alreadyLoadedCount + ' déjà présents');
+  console.log('[AUTO-INIT] 🎉 Terminé: ' + directCount + ' fichiers disponibles en connexion directe');
   return {
-    loaded: loadedCount,
-    alreadyLoaded: alreadyLoadedCount,
+    direct: directCount,
+    synced: syncedCount,
     total: files.length
   };
 }
